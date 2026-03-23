@@ -1,26 +1,45 @@
 # PostGen Skill
 
-An [openclawhq.app](https://openclawhq.app) agent skill that generates social media posts — image carousels and video slideshows — from a topic or idea. Give your AI agent a topic, and it produces polished, branded slides ready to publish.
+An [openclawhq.app](https://openclawhq.app) agent skill that generates social media posts — image carousels and AI-powered video — from a topic or idea. Give your AI agent a topic, and it produces polished, branded content ready to publish.
 
 ## What it does
 
-PostGen takes a topic and turns it into a complete social media post:
+PostGen supports two content creation workflows:
 
+### Carousel Flow (Image-based)
 1. Composes slide content (hook, key points, CTA)
 2. Generates AI background images for each slide (Google Gemini or OpenAI)
 3. Builds styled HTML slides with your brand colors, logo, and fonts
 4. Renders each slide to a high-res PNG
-5. Optionally stitches slides into an MP4 video
+5. Optionally generates AI-animated video clips from each slide image (Kling AI image-to-video)
+6. Optionally generates voiceover narration (OpenAI TTS or ElevenLabs)
+7. Composites into a final carousel video with subtitles
 
-### Supported platforms
+### Text-to-Video Flow (Scene-based)
+1. Composes scene descriptions with rich visual prompts
+2. Generates video clips directly from scene text using Kling text-to-video (no images needed)
+3. Kling-v3 batches scenes into multi-shot 10s clips for coherent transitions
+4. Generates voiceover narration from scene text (OpenAI TTS or ElevenLabs)
+5. Composites clips + voiceover + burned-in subtitles into final video
 
+### Supported platforms and output types
+
+#### Carousel Flow (Image posts with optional video)
 | Platform | Type | Format | Resolution |
 |----------|------|--------|------------|
 | Instagram carousel | Image | 1080x1350 (4:5) | PNG slides |
 | TikTok carousel | Image | 1080x1920 (9:16) | PNG slides |
-| TikTok | Video | 1080x1920 (9:16) | MP4 |
-| Instagram Reels | Video | 1080x1920 (9:16) | MP4 |
-| YouTube Shorts | Video | 1080x1920 (9:16) | MP4 |
+| TikTok | Video slideshow | 1080x1920 (9:16) | MP4 (PNG→video) |
+| Instagram Reels | Video slideshow | 1080x1920 (9:16) | MP4 (PNG→video + AI clips) |
+| YouTube Shorts | Video slideshow | 1080x1920 (9:16) | MP4 (PNG→video) |
+
+#### Text-to-Video Flow (Scene-based video)
+| Platform | Type | Format | Resolution |
+|----------|------|--------|------------|
+| TikTok | AI video | 1080x1920 (9:16) | MP4 (text-to-video) |
+| Instagram Reels | AI video | 1080x1920 (9:16) | MP4 (text-to-video) |
+| YouTube Shorts | AI video | 1080x1920 or 16:9 (9:16) | MP4 (text-to-video) |
+| YouTube | AI video | 1280x720 or custom | MP4 (text-to-video) |
 
 ### Templates
 
@@ -73,11 +92,39 @@ All configuration is stored in a `postgen.config.json` file in your workspace.
 
 ## API Keys
 
-PostGen needs an API key for AI image generation. It checks three places automatically (first match wins):
+PostGen needs API keys based on which workflow you use.
 
-1. **openclawhq.app config** — `~/.openclaw/openclaw.json` → `env.GEMINI_API_KEY` or `env.OPENAI_API_KEY`
-2. **Environment variables** — `GEMINI_API_KEY`, `GOOGLE_GENAI_API_KEY`, or `OPENAI_API_KEY`
-3. **postgen.config.json** — `gemini_api_key` or `openai_api_key` fields
+### Carousel Flow
+
+**Image generation (required)** — checked in order: openclawhq.app → env vars → postgen.config.json:
+
+| Provider | Key(s) |
+|----------|--------|
+| Google GenAI | `GEMINI_API_KEY` or `GOOGLE_GENAI_API_KEY` |
+| OpenAI | `OPENAI_API_KEY` |
+
+**AI video & voiceover (optional)** — checked in order: postgen.config.json → env vars → openclawhq.app:
+
+| Provider | Key(s) | Used for |
+|----------|--------|----------|
+| Kling AI | `KLING_ACCESS_KEY` + `KLING_SECRET_KEY` | AI video (image-to-video per slide) |
+| OpenAI | `OPENAI_API_KEY` | OpenAI TTS voiceover |
+| ElevenLabs | `ELEVENLABS_API_KEY` | Premium TTS voiceover |
+
+### Text-to-Video Flow
+
+**Video generation (required)** — checked in order: postgen.config.json → env vars → openclawhq.app:
+
+| Provider | Key(s) | Used for |
+|----------|--------|----------|
+| Kling AI | `KLING_ACCESS_KEY` + `KLING_SECRET_KEY` | Text-to-video (scene descriptions → video clips) |
+
+**Voiceover (optional)** — same key resolution as Carousel:
+
+| Provider | Key(s) | Used for |
+|----------|--------|----------|
+| OpenAI | `OPENAI_API_KEY` | OpenAI TTS voiceover |
+| ElevenLabs | `ELEVENLABS_API_KEY` | Premium TTS voiceover |
 
 > **Security note:** Prefer environment variables or the [openclawhq.app](https://openclawhq.app) config over storing keys in `postgen.config.json`. If you do store keys in the config file, make sure it's not committed to version control. The setup script generates a `.gitignore` in the workspace as a reminder. On [openclawhq.app](https://openclawhq.app), API keys are managed securely for you — no config files needed.
 
@@ -93,20 +140,32 @@ After setup, your workspace looks like this:
 │   └── logo.png
 ├── output/
 │   └── 2026-03-22/              # Date-based folders
-│       ├── 001/                 # Post #1
+│       ├── 001/                 # Post #1 (carousel flow)
 │       │   ├── slides.json
 │       │   ├── caption.txt
 │       │   ├── backgrounds/
 │       │   ├── backgrounds-compressed/
+│       │   ├── voiceover/
+│       │   ├── voiceover.json
+│       │   ├── ai-video/
+│       │   ├── ai-video.json
 │       │   ├── instagram/
 │       │   │   ├── slides/*.html
 │       │   │   └── final/*.png
 │       │   └── tiktok/
 │       │       ├── slides/*.html
 │       │       ├── final/*.png
-│       │       └── final/carousel-video.mp4
-│       └── 002/                 # Post #2
-│           └── ...
+│       │       ├── final/carousel-video.mp4     # Basic slideshow
+│       │       └── final/postgen-video.mp4      # AI video + voiceover + subtitles
+│       └── 002/                 # Post #2 (text-to-video flow)
+│           ├── video.json       # Scene descriptions (text-to-video)
+│           ├── caption.txt
+│           ├── voiceover/
+│           ├── voiceover.json
+│           ├── ai-video/        # Text-to-video clips from scenes
+│           ├── ai-video.json
+│           └── tiktok/
+│               └── final/postgen-video.mp4      # Composited text-to-video + voiceover + subtitles
 └── node_modules/                # Installed dependencies
 ```
 
@@ -126,7 +185,11 @@ postgen-skill/
     │   ├── compress-backgrounds.mjs  # ffmpeg PNG→JPG compression (full resolution)
     │   ├── build-slides.mjs     # HTML slide builder (orchestrator + auto-rotate)
     │   ├── render-slides.mjs    # Playwright HTML→PNG renderer (font-wait, timeout)
-    │   ├── generate-video.mjs   # ffmpeg PNG→MP4 video (CRF 18, web-optimized)
+    │   ├── generate-video.mjs   # ffmpeg PNG→MP4 basic slideshow (CRF 18, web-optimized)
+    │   ├── generate-tts.mjs     # TTS voiceover from video.json or slides.json (OpenAI or ElevenLabs)
+    │   ├── generate-ai-video.mjs # Kling AI text-to-video from scenes (retry + parallel batching)
+    │   ├── composite-video.mjs  # Final video: AI clips + voiceover + subtitles
+    │   ├── kling-client.mjs     # Kling API client (JWT auth, text-to-video, polling, download)
     │   ├── verify-output.mjs    # Post-generation quality checks
     │   ├── validate-config.mjs  # Pre-flight configuration validator
     │   ├── next-post-dir.mjs    # Auto-determine next post directory

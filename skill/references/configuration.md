@@ -28,8 +28,12 @@ Located at the root of the workspace path. Created by `scripts/setup.mjs`.
     "output_type": "both",
     "template": "bold"
   },
+  "tts_provider": "kling",
   "gemini_api_key": "optional-fallback-key",
-  "openai_api_key": "optional-fallback-key"
+  "openai_api_key": "optional-fallback-key",
+  "kling_access_key": "optional-kling-access-key",
+  "kling_secret_key": "optional-kling-secret-key",
+  "elevenlabs_api_key": "optional-elevenlabs-key"
 }
 ```
 
@@ -50,17 +54,29 @@ Located at the root of the workspace path. Created by `scripts/setup.mjs`.
 | `defaults.slide_count` | No | Default number of slides (default: 7) |
 | `defaults.formats` | No | Array of output formats: `"instagram"` (4:5), `"tiktok"` (9:16). Legacy alias `"shorts"` also accepted. |
 | `defaults.output_type` | No | Default output type: `"image"` (PNG only), `"video"` (PNG + MP4), or `"both"` (default). Can be overridden per post in slides.json. |
-| `defaults.template` | No | Default template: `"bold"` or `"minimal"` |
-| `gemini_api_key` | No | Tier 3 fallback API key for Google GenAI |
-| `openai_api_key` | No | Tier 3 fallback API key for OpenAI |
+| `defaults.template` | No | Default template: `"bold"`, `"minimal"`, `"magazine"`, `"neon"`, `"stack"`, or `"clean"` |
+| `tts_provider` | No | Preferred TTS provider: `"openai"` or `"elevenlabs"`. Auto-detected if omitted (tries OpenAI first). |
+| `gemini_api_key` | No | Fallback API key for Google GenAI |
+| `openai_api_key` | No | Fallback API key for OpenAI (also used for OpenAI TTS) |
+| `kling_access_key` | No | Kling AI access key (for AI video + Kling TTS) |
+| `kling_secret_key` | No | Kling AI secret key (paired with access key for JWT auth) |
+| `elevenlabs_api_key` | No | ElevenLabs API key (for premium TTS voiceover) |
 
 ## API Key Resolution
 
-Keys are resolved in this order (first found wins):
+### Image Generation Keys (order: OpenClaw → env → config)
 
-1. **OpenClaw config**: `~/.openclaw/openclaw.json` (or `$OPENCLAW_HOME/openclaw.json`) -> `env.GEMINI_API_KEY` / `env.OPENAI_API_KEY`
+1. **OpenClaw config**: `~/.openclaw/openclaw.json` → `env.GEMINI_API_KEY` / `env.OPENAI_API_KEY`
 2. **Environment variables**: `GEMINI_API_KEY`, `GOOGLE_GENAI_API_KEY`, or `OPENAI_API_KEY`
 3. **postgen.config.json**: `gemini_api_key` or `openai_api_key` fields
+
+### Video & TTS Keys (order: config → env → OpenClaw)
+
+1. **postgen.config.json**: `kling_access_key` + `kling_secret_key`, `openai_api_key`, `elevenlabs_api_key`
+2. **Environment variables**: `KLING_ACCESS_KEY` + `KLING_SECRET_KEY`, `OPENAI_API_KEY`, `ELEVENLABS_API_KEY`
+3. **OpenClaw config**: same env var names in `~/.openclaw/openclaw.json`
+
+Note: Kling requires BOTH access key and secret key from the same tier.
 
 ## Image Providers
 
@@ -107,6 +123,10 @@ Set `output_type` in `slides.json` per post, or set `defaults.output_type` in co
 |----------|-------|------------|------------|
 | `bold` | Dark, dramatic, cinematic | White on dark | Dark/saturated backgrounds |
 | `minimal` | Clean, warm, modern | Dark on light | Mid-tone warm backgrounds with frosted overlay |
+| `magazine` | Editorial left-aligned | White on dark | Dark editorial backgrounds |
+| `neon` | Cyberpunk, glowing borders | White/neon on dark | Dark tech/abstract backgrounds |
+| `stack` | Full-bleed, bottom-anchored | White on gradient | Vivid full-bleed backgrounds |
+| `clean` | Duotone, minimal chrome | Dark on wash | Mid-tone backgrounds with color wash |
 
 ## Workspace Directory Structure
 
@@ -118,13 +138,22 @@ Set `output_type` in `slides.json` per post, or set `defaults.output_type` in co
 ├── output/
 │   └── {YYYY-MM-DD}/             # Date folder
 │       └── {NNN}/                # Post number (zero-padded)
-│           ├── slides.json
+│           ├── slides.json                    # Carousel flow (image posts)
+│           ├── video.json                     # Text-to-video flow (AI video posts)
 │           ├── caption.txt              # Caption + hashtags for the post
-│           ├── backgrounds/
+│           ├── backgrounds/                  # AI-generated background images (carousel flow)
 │           ├── backgrounds-compressed/
-│           └── {format}/
+│           ├── voiceover/              # TTS audio files (when voiceover enabled)
+│           │   └── slide-{N}.mp3 (or scene-{N}.mp3 for video.json)
+│           ├── voiceover.json          # TTS manifest with timing
+│           ├── ai-video/               # Kling AI video clips (from video.json scenes)
+│           │   └── scene-{N}.mp4
+│           ├── ai-video.json           # AI video manifest with scene metadata
+│           └── {format}/               # Only used for carousel flow (slides.json)
 │               ├── slides/*.html
-│               └── final/*.png
+│               ├── final/*.png
+│               ├── final/carousel-video.mp4    # Basic slideshow (when no AI video)
+│               └── final/postgen-video.mp4     # Composited AI video + voiceover + subtitles
 └── node_modules/                  # Installed dependencies
 ```
 

@@ -53,13 +53,17 @@ How to compose `slides.json` for the PostGen pipeline.
   "template": "bold",
   "output_type": "image",
   "formats": ["instagram", "tiktok"],
+  "ai_video": false,
+  "voiceover": false,
+  "tts_provider": "openai",
   "slides": [
     {
       "slide_number": 1,
       "slide_type": "hook",
       "title": "HOOK TITLE HERE",
       "body": "",
-      "background_prompt": "detailed image generation prompt"
+      "background_prompt": "detailed image generation prompt",
+      "voiceover_text": "Optional custom narration text for TTS (overrides auto-generated)"
     },
     {
       "slide_number": 2,
@@ -91,6 +95,9 @@ How to compose `slides.json` for the PostGen pipeline.
 | `output_type` | Yes | `"image"` (PNG carousel only), `"video"` (PNG + MP4), or `"both"` (default). Set based on user's answer to the format question. |
 | `formats` | Yes | Array of format names: `"instagram"` (1080x1350, 4:5) and/or `"tiktok"` (1080x1920, 9:16). Set based on user's answer to the platform question. |
 | `template` | **Yes** | `"bold"`, `"minimal"`, `"magazine"`, `"neon"`, `"stack"`, `"clean"`, or `"auto"`. **Always set this field.** Use the user's choice from Question 5, or `"auto"` if they said "Surprise me". When set to `"auto"`, the pipeline scans previous posts and picks a template that avoids the last 2 used. |
+| `ai_video` | No | `true` to enable Kling AI video generation (image-to-video per slide). Requires Kling credentials. |
+| `voiceover` | No | `true` to enable TTS voiceover narration. Auto-enabled for video when TTS credentials exist. |
+| `tts_provider` | No | Override TTS provider: `"openai"` or `"elevenlabs"`. Auto-detected if omitted (tries OpenAI first). |
 
 ## Slide Types
 

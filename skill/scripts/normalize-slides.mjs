@@ -32,12 +32,16 @@ export function loadAndNormalizeSlides(postDir) {
     const bgPrompt =
       s.background_prompt ?? s.backgroundPrompt ?? s.bg_prompt ?? s.prompt ?? '';
 
+    const voiceoverText =
+      s.voiceover_text ?? s.voiceoverText ?? s.narration ?? null;
+
     return {
       slide_number: Number(num),
       slide_type: String(slideType),
       title: String(s.title ?? ''),
       body: String(s.body ?? s.text ?? s.content ?? ''),
       background_prompt: String(bgPrompt),
+      ...(voiceoverText ? { voiceover_text: String(voiceoverText) } : {}),
     };
   });
 

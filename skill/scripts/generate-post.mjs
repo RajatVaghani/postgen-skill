@@ -3,22 +3,29 @@
  * PostGen – Full pipeline orchestrator.
  *
  * Usage:
- *   node generate-post.mjs <post-dir> [--skip-video] [--skip-compress] [--dry-run] [--timeout <ms>]
+ *   node generate-post.mjs <post-dir> [--skip-video] [--skip-compress] [--dry-run]
+ *                                      [--timeout <ms>] [--ai-video] [--voiceover]
+ *                                      [--tts-provider openai|elevenlabs]
  *
  * Runs the complete pipeline in order:
- *   1. validate-config (preflight check)
- *   2. generate-backgrounds
- *   3. compress-backgrounds
- *   4. build-slides
- *   5. render-slides
- *   6. generate-video (optional)
- *   7. verify-output
+ *   1. generate-backgrounds       (AI background images)
+ *   2. compress-backgrounds       (ffmpeg PNG→JPG)
+ *   3. build-slides               (HTML slide builder)
+ *   4. render-slides              (Playwright HTML→PNG)
+ *   5. generate-video             (basic ffmpeg slideshow — optional)
+ *   6. generate-tts               (voiceover — optional, requires --voiceover or output_type=video)
+ *   7. generate-ai-video          (Kling image-to-video — optional, requires --ai-video)
+ *   8. composite-video            (stitch clips + audio + subtitles — when ai-video or voiceover)
+ *   9. verify-output
  *
  * Flags:
- *   --dry-run         Validate everything without generating (no API calls, no rendering)
- *   --skip-video      Skip MP4 video generation
- *   --skip-compress   Skip ffmpeg background compression
- *   --timeout <ms>    Per-step timeout in ms (default: 600000 = 10 minutes)
+ *   --dry-run            Validate everything without generating (no API calls, no rendering)
+ *   --skip-video         Skip ALL video generation (basic + AI + composite)
+ *   --skip-compress      Skip ffmpeg background compression
+ *   --ai-video           Enable Kling AI video generation (image-to-video per slide)
+ *   --voiceover          Enable TTS voiceover generation
+ *   --tts-provider <p>   TTS provider: openai or elevenlabs (auto-detects if omitted)
+ *   --timeout <ms>       Per-step timeout in ms (default: 600000 = 10 minutes)
  *
  * Expects slides.json to already exist in <post-dir>.
  */
@@ -28,7 +35,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { findWorkspaceRoot, loadConfig } from './workspace.mjs';
 import { loadAndNormalizeSlides } from './normalize-slides.mjs';
-import { resolveApiKey } from './resolve-key.mjs';
+import { resolveApiKey, resolveVideoKey } from './resolve-key.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -36,12 +43,18 @@ let postDir = '.';
 let skipVideo = false;
 let skipCompress = false;
 let dryRun = false;
+let enableAiVideo = false;
+let enableVoiceover = false;
+let ttsProvider = '';
 let stepTimeout = 600_000; // 10 minutes per step
 
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--skip-video') skipVideo = true;
   else if (args[i] === '--skip-compress') skipCompress = true;
   else if (args[i] === '--dry-run') dryRun = true;
+  else if (args[i] === '--ai-video') enableAiVideo = true;
+  else if (args[i] === '--voiceover') enableVoiceover = true;
+  else if (args[i] === '--tts-provider' && args[i + 1]) ttsProvider = args[++i];
   else if (args[i] === '--timeout' && args[i + 1]) stepTimeout = Number(args[++i]);
   else if (!args[i].startsWith('--')) postDir = args[i];
 }
@@ -91,11 +104,36 @@ if (configIssues.length > 0) {
 }
 
 // Load slides config
-const { formats: slidesFormats, outputType } = loadAndNormalizeSlides(postDir);
+const { formats: slidesFormats, outputType, raw: slidesRaw } = loadAndNormalizeSlides(postDir);
 const formats = slidesFormats || config.defaults?.formats || ['instagram', 'tiktok'];
 
 if (!skipVideo && outputType === 'image') {
   skipVideo = true;
+}
+
+// Auto-enable enhanced video features from slides.json flags
+if (slidesRaw.ai_video === true && !skipVideo) enableAiVideo = true;
+if (slidesRaw.voiceover === true && !skipVideo) enableVoiceover = true;
+if (slidesRaw.tts_provider && !ttsProvider) ttsProvider = slidesRaw.tts_provider;
+
+// If output_type is 'video' and no explicit flags, enable voiceover by default
+if ((outputType === 'video' || outputType === 'both') && !skipVideo && !enableVoiceover) {
+  // Check if a TTS provider is available before auto-enabling
+  const hasTTS = resolveVideoKey('openai-tts', config) ||
+                 resolveVideoKey('elevenlabs', config);
+  if (hasTTS) enableVoiceover = true;
+}
+
+// Check Kling credentials for AI video
+let hasKling = false;
+if (enableAiVideo) {
+  const klingCreds = resolveVideoKey('kling', config);
+  if (klingCreds) {
+    hasKling = true;
+  } else {
+    console.warn('  [!] AI video requested but no Kling credentials found — skipping AI video');
+    enableAiVideo = false;
+  }
 }
 
 // Check system dependencies
@@ -122,7 +160,9 @@ console.log('Pipeline plan:');
 console.log(`  Post directory: ${postDir}`);
 console.log(`  Formats: ${formats.join(', ')}`);
 console.log(`  Output type: ${skipVideo ? 'image only' : 'image + video'}`);
-console.log(`  Provider: ${provider} (key via ${resolved?.source || 'MISSING'})`);
+console.log(`  Image provider: ${provider} (key via ${resolved?.source || 'MISSING'})`);
+console.log(`  AI video (Kling): ${enableAiVideo ? 'enabled' : 'off'}`);
+console.log(`  Voiceover (TTS): ${enableVoiceover ? (ttsProvider || 'auto-detect') : 'off'}`);
 console.log(`  ffmpeg: ${hasFFmpeg ? 'available' : 'NOT FOUND (compression/video will fail)'}`);
 console.log(`  Playwright: ${hasChromium ? 'available' : 'NOT FOUND (rendering will fail)'}`);
 console.log(`  Step timeout: ${stepTimeout / 1000}s`);
@@ -195,15 +235,36 @@ for (const fmt of formats) {
   run('build-slides.mjs', `--format ${fmt}`);
   run('render-slides.mjs', `--format ${fmt}`);
 
-  // 5. Video
-  if (!skipVideo && hasFFmpeg) {
+  // 5. Basic slideshow video (ffmpeg PNG→MP4)
+  if (!skipVideo && hasFFmpeg && !enableAiVideo) {
+    // Only generate basic video if NOT using AI video (AI video replaces this)
     run('generate-video.mjs', `--format ${fmt}`);
-  } else if (!skipVideo && !hasFFmpeg) {
-    console.log(`\n>>> Skipping video for ${fmt} (ffmpeg not available)`);
+  } else if (!skipVideo && !hasFFmpeg && !enableAiVideo) {
+    console.log(`\n>>> Skipping basic video for ${fmt} (ffmpeg not available)`);
   }
 }
 
-// 6. Verify output
+// 6. Voiceover (TTS) — runs once, not per-format
+if (enableVoiceover && !skipVideo) {
+  const ttsArgs = ttsProvider ? `--provider ${ttsProvider}` : '';
+  run('generate-tts.mjs', ttsArgs);
+}
+
+// 7. AI Video (Kling image-to-video) — per format
+if (enableAiVideo && !skipVideo) {
+  for (const fmt of formats) {
+    run('generate-ai-video.mjs', `--format ${fmt}`);
+  }
+}
+
+// 8. Composite video (stitch AI clips + voiceover + subtitles)
+if (!skipVideo && hasFFmpeg && (enableAiVideo || enableVoiceover)) {
+  for (const fmt of formats) {
+    run('composite-video.mjs', `--format ${fmt}`);
+  }
+}
+
+// 9. Verify output
 console.log('\n');
 try {
   run('verify-output.mjs', '', true);
@@ -215,12 +276,20 @@ try {
 const totalElapsed = ((Date.now() - pipelineStart) / 1000).toFixed(1);
 console.log(`\n=== Pipeline complete in ${totalElapsed}s ===`);
 console.log(`Output: ${postDir}`);
-console.log(`Type: ${skipVideo ? 'image' : 'image + video'}`);
+const typeLabel = skipVideo ? 'image' : enableAiVideo ? 'image + AI video' : 'image + video';
+console.log(`Type: ${typeLabel}`);
 for (const fmt of formats) {
-  const finalDir = path.join(postDir, fmt, 'final');
-  if (fs.existsSync(finalDir)) {
-    const pngs = fs.readdirSync(finalDir).filter((f) => f.endsWith('.png'));
-    const mp4 = fs.readdirSync(finalDir).find((f) => f.endsWith('.mp4'));
-    console.log(`  ${fmt}: ${pngs.length} slide image(s)${mp4 ? ' + video' : ''}`);
+  const fmtFinalDir = path.join(postDir, fmt, 'final');
+  if (fs.existsSync(fmtFinalDir)) {
+    const pngs = fs.readdirSync(fmtFinalDir).filter((f) => f.endsWith('.png'));
+    const mp4s = fs.readdirSync(fmtFinalDir).filter((f) => f.endsWith('.mp4'));
+    const videoLabel = mp4s.length > 0 ? ` + ${mp4s.length} video(s)` : '';
+    console.log(`  ${fmt}: ${pngs.length} slide image(s)${videoLabel}`);
   }
+}
+if (enableVoiceover && fs.existsSync(path.join(postDir, 'voiceover.json'))) {
+  console.log(`  voiceover: generated`);
+}
+if (enableAiVideo && fs.existsSync(path.join(postDir, 'ai-video.json'))) {
+  console.log(`  ai-video: generated`);
 }

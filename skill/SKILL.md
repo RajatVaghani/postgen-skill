@@ -205,9 +205,13 @@ node <skill-path>/scripts/next-post-dir.mjs <workspace-path>
 
 This prints the absolute path (e.g. `/path/to/workspace/output/2026-03-23/001/`). Capture this path and use it as `<post-dir>` for all subsequent steps. The script handles date folders and numbering automatically — no need to manually check existing folders.
 
-### Step 2: Compose slides.json
+### Step 2: Choose your content flow
 
-Write a `slides.json` file to the post folder. Read [slide-content-guide.md](references/slide-content-guide.md) for the full schema, template guidelines, and background prompt patterns.
+Decide whether to generate a carousel post (image-based with slides.json) or a video post (Kling text-to-video with video.json). These are two separate workflows.
+
+#### Option A: Carousel Flow (slides.json)
+
+For swipeable image carousels or basic video slideshows, compose `slides.json`. Read [slide-content-guide.md](references/slide-content-guide.md) for the full schema, template guidelines, and background prompt patterns.
 
 **Set the `"template"` field** based on the user's answer to Question 5. If they picked a specific style, use that template name. If they said "Surprise me", set `"template": "auto"` and the pipeline will auto-rotate. **Never omit the template field** — always set it explicitly so there's a record of what was chosen.
 
@@ -223,6 +227,9 @@ Write a `slides.json` file to the post folder. Read [slide-content-guide.md](ref
 
 - `output_type`: `"image"` (PNG carousel only), `"video"` (PNG + MP4), or `"both"` (same as video). Defaults to `"both"` if omitted.
 - `formats`: Array of format names to generate. `"instagram"` (1080x1350, 4:5) and/or `"tiktok"` (1080x1920, 9:16). If omitted, falls back to `defaults.formats` in config.
+- `ai_video`: `true` to enable Kling AI video generation (image-to-video per slide). Only set when the user explicitly wants AI-animated video.
+- `voiceover`: `true` to enable TTS voiceover narration. Auto-enabled for video output when TTS credentials are available.
+- `tts_provider`: Override TTS provider (`"openai"` or `"elevenlabs"`). Omit to auto-detect from available credentials.
 
 If the user chose to provide their own content (Question 3), use their text for slide titles and bodies. Otherwise, generate engaging content based on their topic.
 
@@ -233,6 +240,73 @@ Key content rules:
 - 5-7 slides for short carousels, up to 10 for detailed guides
 - Every slide needs a `background_prompt` for AI image generation -- just describe the scene, the pipeline automatically generates portrait images in the correct aspect ratio for the target format
 - If assets exist in the workspace `assets/` folder, include `asset_placements` mapping filenames to slides and usage types (watermark, featured_image, background, cta_logo)
+
+#### Option B: Text-to-Video Flow (video.json)
+
+For AI-generated video posts with scene descriptions, voiceover narration, and subtitle compositing, compose `video.json` instead. This creates a standalone video using Kling's text-to-video API — no image carousel generation.
+
+**Schema:**
+
+```json
+{
+  "topic": "The main subject of your video",
+  "target_duration": 30,
+  "aspect_ratio": "9:16",
+  "model": "kling-v3",
+  "mode": "std",
+  "template": "bold",
+  "voiceover": true,
+  "tts_provider": "openai",
+  "negative_prompt": "blurry, low quality, watermark",
+  "scenes": [
+    {
+      "scene_number": 1,
+      "prompt": "A detailed visual description of the scene — include lighting, camera angle, colors, mood. Make it cinematic.",
+      "duration": 5,
+      "voiceover_text": "What the narrator says during this scene. Natural speech, not bullet points."
+    },
+    {
+      "scene_number": 2,
+      "prompt": "Second scene description...",
+      "duration": 5,
+      "voiceover_text": "Continuation of the narration..."
+    }
+  ],
+  "cta": {
+    "title": "Follow @YourBrand",
+    "body": "Follow for more content like this!"
+  }
+}
+```
+
+**Key fields:**
+
+- `topic`: Brief description of the video's subject (used for Kling context)
+- `target_duration`: Target total video length in seconds (30 = 25s AI video + 5s CTA end-card)
+- `aspect_ratio`: `"9:16"` for TikTok/Reels/Shorts, `"16:9"` for YouTube, `"1:1"` for Instagram Feed
+- `model`: Kling model to use: `"kling-v3"` (multi-shot batching with coherent transitions)
+- `mode`: `"std"` (standard quality) or `"pro"` (higher quality, longer processing)
+- `template`: Template for the CTA end-card: `"bold"`, `"neon"`, `"minimal"`, `"clean"`, `"stack"`, or `"magazine"`. Uses the same branded slide renderer as carousels.
+- `voiceover`: `true` to enable TTS narration (reads `voiceover_text` from each scene)
+- `tts_provider`: `"openai"` or `"elevenlabs"`. Omit to auto-detect from credentials.
+- `negative_prompt`: Text to exclude from generation (e.g. "blurry, watermark, low quality")
+- `scenes`: Array of scene objects, each with:
+  - `scene_number`: Sequential number (1, 2, 3, etc.)
+  - `prompt`: Rich, cinematic description of the visual. Include lighting, camera movement, mood, colors, composition. The more detailed, the better the output.
+  - `duration`: Length of this scene in seconds (typically 5s; use 5 scenes × 5s = 25s to leave room for CTA)
+  - `voiceover_text`: Natural narration for this scene (not slide bullet points — conversational speech)
+- `cta`: Call-to-action end-card (branded 5s outro). Fields:
+  - `title`: Headline text (e.g. "Follow @YourBrand", "Save This Post")
+  - `body`: Supporting text (e.g. "Follow for more content like this!")
+
+**Composition strategy:**
+
+- For a 30s video: 5 scenes × 5s = 25s of AI video + 5s CTA end-card = 30s total
+- The CTA end-card is rendered as a branded slide (same template system as carousels) with a subtle Ken Burns zoom, then appended to the AI video track
+- Scenes are batched into multi-shot calls (2 × 5s scenes = 10s batch) for coherent transitions
+- Write visually rich prompts with camera directions ("tracking shot", "close-up on...", "wide establishing shot")
+- Keep voiceover_text natural and conversational, not robotic or bullet-pointed
+- All scenes flow together as a cohesive video narrative, ending with the branded CTA
 
 ### Step 2b: Generate caption & hashtags
 
@@ -263,12 +337,16 @@ The pipeline typically takes **2-5 minutes** depending on the number of slides (
 2. **Do NOT run any other commands while the pipeline is running.** Wait for it to complete.
 3. The pipeline prints progress lines like `[30s] Generating slide 3 of 7...` — these confirm it's still working. If you see these, the pipeline is healthy.
 
-The pipeline runs all steps in order: preflight check → backgrounds → compress → build HTML → render PNG → video → verify. It reads `output_type` and `formats` from `slides.json` automatically:
-- If `output_type` is `"image"`, video generation is skipped
-- If `output_type` is `"video"` or `"both"` (or omitted), both images and video are produced
-- The `formats` array determines which sizes to build
+The pipeline runs all steps in order: preflight → backgrounds → compress → build HTML → render PNG → basic video → voiceover TTS → AI video → composite → verify. It reads `output_type`, `formats`, `ai_video`, `voiceover`, and `tts_provider` from `slides.json` automatically:
+- If `output_type` is `"image"`, all video generation is skipped
+- If `output_type` is `"video"` or `"both"` (or omitted), images + basic video are produced
+- If `ai_video` is `true`, Kling AI generates animated clips from each slide PNG (replaces basic slideshow)
+- If `voiceover` is `true`, TTS narration is generated from slide text
+- When both AI video and voiceover are enabled, the pipeline composites everything: AI clips + voiceover audio + burned-in subtitles → final MP4
 
-You can also override with flags: `--skip-video` to force skip video, `--skip-compress` to skip ffmpeg compression.
+Override flags: `--skip-video`, `--skip-compress`, `--ai-video`, `--voiceover`, `--tts-provider openai|elevenlabs`.
+
+**Enhanced video generation (AI video + voiceover) takes significantly longer** — expect 5-15 minutes depending on slide count, because each slide requires a Kling AI video generation task (~1-3 min each). Tell the user about the expected wait time.
 
 **Timeout protection:** Each pipeline step has a 10-minute timeout. If a step hangs (e.g. an API is unresponsive), it will be killed and the pipeline will report which step failed. Background generation has per-image timeouts (90 seconds) and retries (3 attempts with exponential backoff).
 
@@ -295,6 +373,10 @@ If the pipeline fails, look at the output to identify the failure point. The pip
 | `render-slides.mjs` fails | Playwright/Chromium issue | Run `npx playwright install --with-deps chromium` in workspace |
 | `generate-video.mjs` fails | ffmpeg missing or broken | Install ffmpeg, or use `--skip-video` |
 | `compress-backgrounds.mjs` fails | ffmpeg missing | Install ffmpeg, or use `--skip-compress` |
+| `generate-tts.mjs` fails | Missing TTS credentials | Add openai_api_key or elevenlabs_api_key to config or env |
+| `generate-ai-video.mjs` fails on video.json | Kling API error, rate limit, or invalid scene prompt | Check Kling credentials and quota, verify scene prompts are detailed enough, retry |
+| `generate-ai-video.mjs` fails on slides.json | Kling API error or timeout | Check Kling credentials, retry, or drop `ai_video` flag |
+| `composite-video.mjs` fails | ffmpeg issue or missing clips | Check video.json or ai-video.json and voiceover.json exist, ensure ffmpeg works |
 | Pipeline times out | Slow API or network | Increase timeout: `--timeout 900000` (15 min) |
 
 To retry from a specific step, run that script individually:
@@ -305,6 +387,9 @@ node <skill-path>/scripts/compress-backgrounds.mjs <post-dir>
 node <skill-path>/scripts/build-slides.mjs <post-dir> [--format instagram|tiktok] [--template bold|minimal|magazine|neon|stack|clean]
 node <skill-path>/scripts/render-slides.mjs <post-dir> [--format instagram|tiktok]
 node <skill-path>/scripts/generate-video.mjs <post-dir> [--format instagram|tiktok]
+node <skill-path>/scripts/generate-tts.mjs <post-dir> [--provider openai|elevenlabs] [--voice <voice-id>]
+node <skill-path>/scripts/generate-ai-video.mjs <post-dir> [--format tiktok] [--model kling-v3] [--mode std|pro]
+node <skill-path>/scripts/composite-video.mjs <post-dir> [--format tiktok] [--subtitle-style bold|minimal|karaoke]
 ```
 
 ### Step 5: Verify output
@@ -334,7 +419,9 @@ The final PNG images are in `<post-dir>/<format>/final/`. Report the output path
 
 For **image posts** (carousel): tell the user the PNG files are ready to upload as a carousel/slideshow.
 
-For **video posts**: mention the MP4 path (`<post-dir>/<format>/final/carousel-video.mp4`) and note the target platform (TikTok, Reels, YouTube Shorts).
+For **basic video posts**: mention the MP4 path (`<post-dir>/<format>/final/carousel-video.mp4`) and note the target platform (TikTok, Reels, YouTube Shorts).
+
+For **enhanced video posts** (AI video + voiceover): the composited video is at `<post-dir>/<format>/final/postgen-video.mp4`. This includes AI-animated clips, voiceover narration, and burned-in subtitles. Mention all three features when delivering.
 
 If multiple formats were generated, list each format's output separately.
 
@@ -360,27 +447,52 @@ This checks slides.json, config, API key availability, and system dependencies. 
 | `compress-backgrounds.mjs` | ffmpeg PNG-to-JPG compression (preserves full resolution) |
 | `build-slides.mjs` | HTML slide generation from slides.json |
 | `render-slides.mjs` | Playwright HTML-to-PNG rendering with font-loading wait |
-| `generate-video.mjs` | ffmpeg PNG-to-MP4 carousel video (CRF 18, web-optimized) |
+| `generate-video.mjs` | ffmpeg PNG-to-MP4 basic carousel video (CRF 18, web-optimized) |
+| `generate-tts.mjs` | TTS voiceover generation from video.json or slides.json (OpenAI or ElevenLabs) |
+| `generate-ai-video.mjs` | Kling AI text-to-video from video.json scenes (with retry + parallel batching for kling-v3) |
+| `composite-video.mjs` | Final video: stitch AI clips + voiceover audio + burned-in subtitles |
+| `kling-client.mjs` | Kling API client: JWT auth, createTextToVideo, waitForTextToVideo, polling, download |
 | `generate-post.mjs` | Full pipeline orchestrator with preflight, timeouts, and progress reporting |
 | `verify-output.mjs` | Post-generation quality check: backgrounds, renders, content rules |
-| `resolve-key.mjs` | API key resolution utility (3-tier: OpenClaw → env → config) |
+| `resolve-key.mjs` | API key resolution (image: OpenClaw→env→config; video: config→env→OpenClaw) |
 | `workspace.mjs` | Shared utility: finds workspace root, resolves npm packages |
 | `normalize-slides.mjs` | Shared utility: normalizes slides.json field names and structure |
 
 ## API Key Resolution
 
-Keys are found automatically in this order:
-1. `~/.openclaw/openclaw.json` (or `$OPENCLAW_HOME/openclaw.json`) → `env.GEMINI_API_KEY` or `env.OPENAI_API_KEY`
+### Image Generation Keys
+
+Found automatically (order: OpenClaw → env → config):
+1. `~/.openclaw/openclaw.json` → `env.GEMINI_API_KEY` or `env.OPENAI_API_KEY`
 2. Environment variables: `GEMINI_API_KEY`, `GOOGLE_GENAI_API_KEY`, `OPENAI_API_KEY`
 3. `postgen.config.json` → `gemini_api_key` or `openai_api_key`
 
-If no key is found, ask the user to provide one via any of these methods.
+### Video & TTS Keys
 
-**Security note:** API keys in `postgen.config.json` are a last resort. Prefer environment variables or the OpenClaw config. The workspace `.gitignore` is configured to remind about this.
+Found automatically (order: config → env → OpenClaw):
+1. `postgen.config.json` → `kling_access_key` + `kling_secret_key`, `openai_api_key`, `elevenlabs_api_key`
+2. Environment variables: `KLING_ACCESS_KEY` + `KLING_SECRET_KEY`, `OPENAI_API_KEY`, `ELEVENLABS_API_KEY`
+3. `~/.openclaw/openclaw.json` → same env var names
 
-## Image Providers
+**Kling AI requires both an access key AND a secret key** (used to generate JWT tokens). Both must be present in the same tier.
 
-- **google-genai** (Nano Banana Pro): Gemini 3.1 Flash Image, uses `GEMINI_API_KEY`
+If no keys are found, ask the user to provide them. For enhanced video, at minimum they need Kling credentials (for AI video) and any one TTS provider.
+
+**Security note:** Prefer environment variables or the OpenClaw config over storing keys in `postgen.config.json`. The workspace `.gitignore` is configured to remind about this.
+
+## Providers
+
+### Image Generation
+- **google-genai**: Gemini image generation, uses `GEMINI_API_KEY`
 - **openai**: gpt-image-1.5, uses `OPENAI_API_KEY`
 
 Set via `image_provider` in `postgen.config.json`.
+
+### AI Video (Text-to-Video)
+- **kling**: Kling AI (Kuaishou) text-to-video from scene descriptions. Uses `kling-v3` model with multi-shot batching for coherent transitions. Requires `kling_access_key` + `kling_secret_key`.
+
+### TTS (Voiceover)
+- **openai**: OpenAI TTS (gpt-4o-mini-tts), uses `OPENAI_API_KEY`. Voices: alloy, echo, fable, onyx, nova (default), shimmer.
+- **elevenlabs**: ElevenLabs TTS, uses `ELEVENLABS_API_KEY`. Premium voice quality and cloning.
+
+Set via `tts_provider` in `postgen.config.json` or auto-detected from available credentials (tries OpenAI first, then ElevenLabs).
