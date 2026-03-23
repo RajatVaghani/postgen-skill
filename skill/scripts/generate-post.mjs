@@ -215,17 +215,17 @@ if (flowType === 'video') {
   console.log(`Output: ${postDir}`);
   console.log(`Type: AI video (text-to-video)`);
 
-  // Find the composited video
-  const videoPath = path.join(postDir, 'tiktok', 'final', 'postgen-video.mp4');
+  // Find the composited video — video flow outputs to {postDir}/final/
+  const videoPath = path.join(postDir, 'final', 'postgen-video.mp4');
   if (fs.existsSync(videoPath)) {
     const sizeMB = (fs.statSync(videoPath).size / 1024 / 1024).toFixed(1);
     console.log(`  Video: ${videoPath} (${sizeMB}MB)`);
     console.log(`  Repost to: TikTok, Instagram Reels, YouTube Shorts`);
   }
-  if (fs.existsSync(path.join(postDir, 'voiceover.json'))) {
+  if (fs.existsSync(path.join(postDir, 'voiceover', 'manifest.json'))) {
     console.log(`  Voiceover: generated`);
   }
-  if (fs.existsSync(path.join(postDir, 'ai-video.json'))) {
+  if (fs.existsSync(path.join(postDir, 'ai-video', 'manifest.json'))) {
     console.log(`  AI clips: generated`);
   }
 
@@ -359,9 +359,9 @@ for (const fmt of formats) {
     console.log(`  ${fmt}: ${pngs.length} slide image(s)${videoLabel}`);
   }
 }
-if (enableVoiceover && fs.existsSync(path.join(postDir, 'voiceover.json'))) {
+if (enableVoiceover && fs.existsSync(path.join(postDir, 'voiceover', 'manifest.json'))) {
   console.log(`  voiceover: generated`);
 }
-if (enableAiVideo && fs.existsSync(path.join(postDir, 'ai-video.json'))) {
+if (enableAiVideo && fs.existsSync(path.join(postDir, 'ai-video', 'manifest.json'))) {
   console.log(`  ai-video: generated`);
 }

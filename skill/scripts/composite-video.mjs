@@ -8,13 +8,14 @@
  *                                        [--subtitle-style bold|minimal|karaoke]
  *
  * Reads:
- *   - ai-video.json    — AI-generated video clips (text-to-video or image-to-video)
- *   - voiceover.json   — TTS audio files per scene
- *   - video.json       — Scene descriptions + voiceover text (for video flow)
- *   - slides.json      — Slide text for subtitles (fallback for carousel→video flow)
+ *   - ai-video/manifest.json  — AI-generated video clips manifest
+ *   - voiceover/manifest.json — TTS audio segments manifest
+ *   - video.json              — Scene descriptions + voiceover text (video flow)
+ *   - slides.json             — Slide text for subtitles (carousel→video flow)
  *
  * Produces:
- *   - <format>/final/postgen-video.mp4 — Final composited video
+ *   - Video flow:    final/postgen-video.mp4 (one video for all platforms)
+ *   - Carousel flow: <format>/final/postgen-video.mp4
  *
  * Pipeline:
  *   1. Concatenate AI video clips into one continuous video
@@ -68,13 +69,31 @@ const FFMPEG_TIMEOUT = 300_000; // 5 minutes
 // Load manifests
 // ---------------------------------------------------------------------------
 
-const aiVideoPath = path.join(postDir, 'ai-video.json');
-const voiceoverPath = path.join(postDir, 'voiceover.json');
-const hasAiVideo = fs.existsSync(aiVideoPath);
-const hasVoiceover = fs.existsSync(voiceoverPath);
+// Manifest locations: new paths (inside subdirs) with fallback to legacy paths
+const aiVideoManifestPath = (() => {
+  const newPath = path.join(postDir, 'ai-video', 'manifest.json');
+  const legacyPath = path.join(postDir, 'ai-video.json');
+  if (fs.existsSync(newPath)) return newPath;
+  if (fs.existsSync(legacyPath)) return legacyPath;
+  return newPath; // prefer new path even if neither exists
+})();
 
-const aiVideo = hasAiVideo ? JSON.parse(fs.readFileSync(aiVideoPath, 'utf-8')) : null;
-const voiceover = hasVoiceover ? JSON.parse(fs.readFileSync(voiceoverPath, 'utf-8')) : null;
+const voiceoverManifestPath = (() => {
+  const newPath = path.join(postDir, 'voiceover', 'manifest.json');
+  const legacyPath = path.join(postDir, 'voiceover.json');
+  if (fs.existsSync(newPath)) return newPath;
+  if (fs.existsSync(legacyPath)) return legacyPath;
+  return newPath;
+})();
+
+const hasAiVideo = fs.existsSync(aiVideoManifestPath);
+const hasVoiceover = fs.existsSync(voiceoverManifestPath);
+
+const aiVideo = hasAiVideo ? JSON.parse(fs.readFileSync(aiVideoManifestPath, 'utf-8')) : null;
+const voiceover = hasVoiceover ? JSON.parse(fs.readFileSync(voiceoverManifestPath, 'utf-8')) : null;
+
+// Voiceover segments: support both new key ("segments") and legacy key ("slides")
+const voiceoverSegments = voiceover ? (voiceover.segments || voiceover.slides || []) : [];
 
 // Load scene/slide text for subtitles — prefer video.json (video flow), fall back to slides.json
 const videoJsonPath = path.join(postDir, 'video.json');
@@ -94,19 +113,36 @@ if (hasVideoJson) {
   slides = result.slides;
 }
 
-// CTA end-card: if video.json has a cta field, we'll render a branded 5s end-card
+// CTA end-card: auto-generate from brand config if video.json doesn't have a cta field
 const CTA_DURATION = 5;
-const hasCta = !!(videoSpec && videoSpec.cta);
+let hasCta = false;
+
+if (videoSpec) {
+  // If video.json exists but has no cta field, auto-generate one from brand config
+  if (!videoSpec.cta) {
+    const brand = config.brand || {};
+    const handle = brand.handle || brand.name || '';
+    videoSpec.cta = {
+      title: handle ? `Follow @${handle}` : 'Follow for More',
+      body: brand.tagline || 'Follow for more content like this!',
+    };
+    console.log(`  [cta] Auto-generated CTA from brand config: "${videoSpec.cta.title}"`);
+  }
+  hasCta = true;
+}
 
 console.log(`\nPostGen Composite Video`);
 console.log(`  Format: ${format} (${vp.width}x${vp.height})`);
 console.log(`  AI video clips: ${hasAiVideo ? aiVideo.clips.length : 'none (will use static PNGs)'}`);
-console.log(`  Voiceover: ${hasVoiceover ? `${voiceover.slides.length} segments` : 'none (silent video)'}`);
+console.log(`  Voiceover: ${hasVoiceover ? `${voiceoverSegments.length} segments` : 'none (silent video)'}`);
 console.log(`  CTA end-card: ${hasCta ? `${CTA_DURATION}s branded frame` : 'none'}`);
 console.log(`  Subtitles: ${enableSubtitles ? subtitleStyle : 'disabled'}`);
 console.log();
 
-const finalDir = path.join(postDir, format, 'final');
+// Video flow outputs to {postDir}/final/ (no format subdir — one video for all platforms)
+// Carousel flow still uses {postDir}/{format}/final/
+const isVideoFlow = fs.existsSync(path.join(postDir, 'video.json'));
+const finalDir = isVideoFlow ? path.join(postDir, 'final') : path.join(postDir, format, 'final');
 if (!fs.existsSync(finalDir)) fs.mkdirSync(finalDir, { recursive: true });
 
 const tmpDir = path.join(postDir, '.composite-tmp');
@@ -189,19 +225,31 @@ if (hasAiVideo && aiVideo.clips.length > 0) {
 if (hasCta) {
   console.log('Step 1b: Rendering CTA end-card...');
 
-  const ctaFramePath = path.join(postDir, 'cta-frame.png');
+  // New path: cta/frame.png — with fallback to legacy cta-frame.png
+  const ctaFrameNewPath = path.join(postDir, 'cta', 'frame.png');
+  const ctaFrameLegacy = path.join(postDir, 'cta-frame.png');
+  const ctaFramePath = fs.existsSync(ctaFrameNewPath) ? ctaFrameNewPath :
+                        fs.existsSync(ctaFrameLegacy) ? ctaFrameLegacy : ctaFrameNewPath;
   const ctaClipPath = path.join(tmpDir, 'cta-clip.mp4');
 
-  // 1. Render the CTA PNG using render-cta-frame.mjs
-  const renderScript = path.join(path.dirname(new URL(import.meta.url).pathname), 'render-cta-frame.mjs');
-  const templateFlag = videoSpec.template ? `--template ${videoSpec.template}` : '';
-  execSync(
-    `node "${renderScript}" "${postDir}" --format ${format} ${templateFlag}`,
-    { stdio: 'pipe', timeout: 60_000 }
-  );
+  // 1. Render the CTA PNG using render-cta-frame.mjs (skip if already exists)
+  if (!fs.existsSync(ctaFramePath)) {
+    const renderScript = path.join(path.dirname(new URL(import.meta.url).pathname), 'render-cta-frame.mjs');
+    const templateFlag = videoSpec.template ? `--template ${videoSpec.template}` : '';
+    try {
+      execSync(
+        `node "${renderScript}" "${postDir}" --format ${format} ${templateFlag}`,
+        { stdio: 'inherit', timeout: 60_000 }
+      );
+    } catch (err) {
+      console.warn(`  CTA rendering error: ${err.message}`);
+    }
+  } else {
+    console.log(`  CTA frame already exists: ${ctaFramePath}`);
+  }
 
   if (!fs.existsSync(ctaFramePath)) {
-    console.warn('  CTA frame rendering failed — skipping end-card.');
+    console.warn('  CTA frame not found — skipping end-card.');
   } else {
     // 2. Convert CTA PNG to a 5s video clip with a subtle Ken Burns zoom
     execSync(
@@ -249,24 +297,24 @@ console.log('Step 2: Building audio track...');
 const audioTrackPath = path.join(tmpDir, 'audio-track.mp3');
 let hasAudioTrack = false;
 
-if (hasVoiceover && voiceover.slides.length > 0) {
-  // Concatenate voiceover segments with small gaps between slides
+if (hasVoiceover && voiceoverSegments.length > 0) {
+  // Concatenate voiceover segments with small gaps between segments
   const audioListPath = path.join(tmpDir, 'audio-segments.txt');
   const gapPath = path.join(tmpDir, 'silence-gap.mp3');
 
-  // Generate a 0.3s silence gap between slides
+  // Generate a 0.3s silence gap between segments
   execSync(
     `ffmpeg -y -f lavfi -i anullsrc=r=44100:cl=mono -t 0.3 -q:a 9 "${gapPath}"`,
     { stdio: 'pipe', timeout: 10_000 }
   );
 
-  const audioSegments = voiceover.slides
-    .sort((a, b) => a.slide - b.slide)
+  const audioSegments = voiceoverSegments
+    .sort((a, b) => (a.segment || a.slide || 0) - (b.segment || b.slide || 0))
     .flatMap((seg, idx) => {
       const segPath = path.join(postDir, 'voiceover', seg.file);
       const entries = [`file '${segPath}'`];
-      // Add gap between slides (not after the last one)
-      if (idx < voiceover.slides.length - 1) {
+      // Add gap between segments (not after the last one)
+      if (idx < voiceoverSegments.length - 1) {
         entries.push(`file '${gapPath}'`);
       }
       return entries;
@@ -345,16 +393,22 @@ if (hasAudioTrack && Math.abs(audioDuration - videoDuration) > 0.2) {
 
 let srtPath = null;
 
-if (enableSubtitles && hasVoiceover && voiceover.slides.length > 0) {
+if (enableSubtitles && hasVoiceover && voiceoverSegments.length > 0) {
   console.log('Step 3: Generating subtitles...');
+  console.log(`  Voiceover segments: ${voiceoverSegments.length}`);
+  console.log(`  Subtitle text sources: ${slides.length}`);
 
   srtPath = path.join(tmpDir, 'subtitles.srt');
   let currentTime = 0;
   const srtEntries = [];
 
-  voiceover.slides.sort((a, b) => a.slide - b.slide).forEach((seg) => {
-    const slide = slides[seg.slide - 1];
-    if (!slide) return;
+  voiceoverSegments.sort((a, b) => (a.segment || a.slide || 0) - (b.segment || b.slide || 0)).forEach((seg) => {
+    const segIndex = (seg.segment || seg.slide || 1) - 1;
+    const slide = slides[segIndex];
+    if (!slide) {
+      console.warn(`  [sub] No text found for voiceover segment ${seg.segment || seg.slide} — skipping`);
+      return;
+    }
 
     // Apply tempo ratio to subtitle timing so captions match stretched audio
     const segDuration = seg.duration / tempoRatio;
@@ -379,14 +433,22 @@ if (enableSubtitles && hasVoiceover && voiceover.slides.length > 0) {
     currentTime = segStart + segDuration + gapDuration;
   });
 
-  const srtContent = srtEntries
-    .map((e) => `${e.index}\n${e.start} --> ${e.end}\n${e.text}\n`)
-    .join('\n');
+  if (srtEntries.length === 0) {
+    console.warn('  No subtitle entries generated — subtitle text may be empty.');
+    srtPath = null;
+  } else {
+    const srtContent = srtEntries
+      .map((e) => `${e.index}\n${e.start} --> ${e.end}\n${e.text}\n`)
+      .join('\n');
 
-  fs.writeFileSync(srtPath, srtContent);
-  console.log(`  Generated ${srtEntries.length} subtitle entries (tempo-adjusted).`);
-} else if (enableSubtitles) {
-  console.log('Step 3: Skipping subtitles (no voiceover for timing).');
+    fs.writeFileSync(srtPath, srtContent);
+    console.log(`  Generated ${srtEntries.length} subtitle entries (tempo-adjusted).`);
+    console.log(`  SRT file: ${srtPath}`);
+  }
+} else if (enableSubtitles && !hasVoiceover) {
+  console.log('Step 3: Skipping subtitles (no voiceover.json found — run generate-tts.mjs first).');
+} else if (enableSubtitles && hasVoiceover) {
+  console.log('Step 3: Skipping subtitles (voiceover.json has no segments).');
 } else {
   console.log('Step 3: Subtitles disabled.');
 }
@@ -421,38 +483,86 @@ function getSubtitleFilter() {
 
 const subtitleFilter = getSubtitleFilter();
 
-if (hasAudioTrack) {
-  // Both tracks are now duration-matched; use -shortest as a safety net
-  execSync(
-    [
-      'ffmpeg -y',
-      `-i "${videoTrackPath}"`,
-      `-i "${audioTrackPath}"`,
-      `-filter_complex "[0:v]scale=${vp.width}:${vp.height},setsar=1${subtitleFilter}[vout]"`,
-      '-map "[vout]" -map 1:a',
-      '-c:v libx264 -crf 18 -preset medium',
-      '-c:a aac -b:a 192k',
-      '-r 30 -pix_fmt yuv420p',
-      '-shortest',
-      '-movflags +faststart',
-      `"${outputPath}"`,
-    ].join(' '),
-    { stdio: 'pipe', timeout: FFMPEG_TIMEOUT }
-  );
-} else {
-  // Video only, no audio
-  execSync(
-    [
-      'ffmpeg -y',
-      `-i "${videoTrackPath}"`,
-      `-vf "scale=${vp.width}:${vp.height},setsar=1${subtitleFilter}"`,
-      '-c:v libx264 -crf 18 -preset medium',
-      '-r 30 -pix_fmt yuv420p',
-      '-movflags +faststart',
-      `"${outputPath}"`,
-    ].join(' '),
-    { stdio: 'pipe', timeout: FFMPEG_TIMEOUT }
-  );
+// Log what's being composited
+console.log(`  Video track: ${videoTrackPath}`);
+if (hasAudioTrack) console.log(`  Audio track: ${audioTrackPath}`);
+if (subtitleFilter) console.log(`  Subtitles: enabled (${subtitleStyle})`);
+else console.log(`  Subtitles: none`);
+
+try {
+  if (hasAudioTrack) {
+    // Both tracks are now duration-matched; use -shortest as a safety net
+    execSync(
+      [
+        'ffmpeg -y',
+        `-i "${videoTrackPath}"`,
+        `-i "${audioTrackPath}"`,
+        `-filter_complex "[0:v]scale=${vp.width}:${vp.height},setsar=1${subtitleFilter}[vout]"`,
+        '-map "[vout]" -map 1:a',
+        '-c:v libx264 -crf 18 -preset medium',
+        '-c:a aac -b:a 192k',
+        '-r 30 -pix_fmt yuv420p',
+        '-shortest',
+        '-movflags +faststart',
+        `"${outputPath}"`,
+      ].join(' '),
+      { stdio: 'pipe', timeout: FFMPEG_TIMEOUT }
+    );
+  } else {
+    // Video only, no audio
+    execSync(
+      [
+        'ffmpeg -y',
+        `-i "${videoTrackPath}"`,
+        `-vf "scale=${vp.width}:${vp.height},setsar=1${subtitleFilter}"`,
+        '-c:v libx264 -crf 18 -preset medium',
+        '-r 30 -pix_fmt yuv420p',
+        '-movflags +faststart',
+        `"${outputPath}"`,
+      ].join(' '),
+      { stdio: 'pipe', timeout: FFMPEG_TIMEOUT }
+    );
+  }
+} catch (err) {
+  // If subtitle filter caused the failure, retry without subtitles
+  if (subtitleFilter && err.message) {
+    console.warn(`  Composite failed with subtitles — retrying without subtitles...`);
+    console.warn(`  Error: ${err.stderr?.toString().slice(-200) || err.message}`);
+    if (hasAudioTrack) {
+      execSync(
+        [
+          'ffmpeg -y',
+          `-i "${videoTrackPath}"`,
+          `-i "${audioTrackPath}"`,
+          `-filter_complex "[0:v]scale=${vp.width}:${vp.height},setsar=1[vout]"`,
+          '-map "[vout]" -map 1:a',
+          '-c:v libx264 -crf 18 -preset medium',
+          '-c:a aac -b:a 192k',
+          '-r 30 -pix_fmt yuv420p',
+          '-shortest',
+          '-movflags +faststart',
+          `"${outputPath}"`,
+        ].join(' '),
+        { stdio: 'pipe', timeout: FFMPEG_TIMEOUT }
+      );
+    } else {
+      execSync(
+        [
+          'ffmpeg -y',
+          `-i "${videoTrackPath}"`,
+          `-vf "scale=${vp.width}:${vp.height},setsar=1"`,
+          '-c:v libx264 -crf 18 -preset medium',
+          '-r 30 -pix_fmt yuv420p',
+          '-movflags +faststart',
+          `"${outputPath}"`,
+        ].join(' '),
+        { stdio: 'pipe', timeout: FFMPEG_TIMEOUT }
+      );
+    }
+    console.warn(`  Video composited WITHOUT subtitles. The subtitle filter may require libass.`);
+  } else {
+    throw err;
+  }
 }
 
 // ---------------------------------------------------------------------------

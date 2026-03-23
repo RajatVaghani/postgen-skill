@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * PostGen – Generate voiceover audio from slide text.
+ * PostGen – Generate voiceover audio from slide/scene text.
  *
  * Usage:
  *   node generate-tts.mjs <post-dir> [--provider openai|elevenlabs]
@@ -8,8 +8,11 @@
  *                                     [--language en|zh|...]
  *                                     [--speed 1.0]
  *
- * Reads slides.json, extracts narration text per slide, generates TTS audio
- * files, and writes a voiceover manifest (voiceover.json) to the post directory.
+ * Two flows:
+ *   - Video flow (video.json exists): reads scenes → voiceover_text,
+ *     outputs scene-N.mp3 files, manifest at voiceover/manifest.json
+ *   - Carousel flow (slides.json): reads slides → narration text,
+ *     outputs slide-N.mp3 files, manifest at voiceover/manifest.json
  *
  * Supports two TTS providers:
  *   - openai     — OpenAI TTS (gpt-4o-mini-tts) — default
@@ -103,7 +106,7 @@ function extractNarration(slides) {
 // OpenAI TTS
 // ---------------------------------------------------------------------------
 
-async function generateOpenAITTS(texts, outputDir) {
+async function generateOpenAITTS(texts, outputDir, prefix) {
   const creds = resolveVideoKey('openai-tts', config);
   if (!creds) throw new Error('OpenAI API key not found');
 
@@ -117,7 +120,7 @@ async function generateOpenAITTS(texts, outputDir) {
       continue;
     }
 
-    console.log(`  [${i + 1}/${texts.length}] Generating TTS for slide ${i + 1} (${text.length} chars)...`);
+    console.log(`  [${i + 1}/${texts.length}] Generating TTS for ${prefix} ${i + 1} (${text.length} chars)...`);
 
     const body = JSON.stringify({
       model: 'gpt-4o-mini-tts',
@@ -156,7 +159,8 @@ async function generateOpenAITTS(texts, outputDir) {
       req.end();
     });
 
-    const outPath = path.join(outputDir, `slide-${i + 1}.mp3`);
+    const fileName = `${prefix}-${i + 1}.mp3`;
+    const outPath = path.join(outputDir, fileName);
     fs.writeFileSync(outPath, audioBuffer);
 
     // Estimate duration from file size (MP3 ~16kB/s at 128kbps)
@@ -164,8 +168,8 @@ async function generateOpenAITTS(texts, outputDir) {
     console.log(`    Saved: ${outPath} (~${estimatedDuration}s)`);
 
     results.push({
-      slide: i + 1,
-      file: `slide-${i + 1}.mp3`,
+      segment: i + 1,
+      file: fileName,
       duration: parseFloat(estimatedDuration),
       provider: 'openai',
     });
@@ -178,7 +182,7 @@ async function generateOpenAITTS(texts, outputDir) {
 // ElevenLabs TTS
 // ---------------------------------------------------------------------------
 
-async function generateElevenLabsTTS(texts, outputDir) {
+async function generateElevenLabsTTS(texts, outputDir, prefix) {
   const creds = resolveVideoKey('elevenlabs', config);
   if (!creds) throw new Error('ElevenLabs API key not found');
 
@@ -192,7 +196,7 @@ async function generateElevenLabsTTS(texts, outputDir) {
       continue;
     }
 
-    console.log(`  [${i + 1}/${texts.length}] Generating TTS for slide ${i + 1} (${text.length} chars)...`);
+    console.log(`  [${i + 1}/${texts.length}] Generating TTS for ${prefix} ${i + 1} (${text.length} chars)...`);
 
     const body = JSON.stringify({
       text,
@@ -234,15 +238,16 @@ async function generateElevenLabsTTS(texts, outputDir) {
       req.end();
     });
 
-    const outPath = path.join(outputDir, `slide-${i + 1}.mp3`);
+    const fileName = `${prefix}-${i + 1}.mp3`;
+    const outPath = path.join(outputDir, fileName);
     fs.writeFileSync(outPath, audioBuffer);
 
     const estimatedDuration = (audioBuffer.length / 16_000).toFixed(1);
     console.log(`    Saved: ${outPath} (~${estimatedDuration}s)`);
 
     results.push({
-      slide: i + 1,
-      file: `slide-${i + 1}.mp3`,
+      segment: i + 1,
+      file: fileName,
       duration: parseFloat(estimatedDuration),
       provider: 'elevenlabs',
     });
@@ -268,9 +273,11 @@ console.log(`  Speed: ${speed}`);
 const videoJsonPath = path.join(postDir, 'video.json');
 let narrations;
 let sourceLabel;
+let isVideoFlow = false;
 
 if (fs.existsSync(videoJsonPath)) {
   // Video flow: extract voiceover_text from scenes
+  isVideoFlow = true;
   const videoSpec = JSON.parse(fs.readFileSync(videoJsonPath, 'utf-8'));
   const scenes = videoSpec.scenes || [];
   narrations = scenes.map((s) => s.voiceover_text || s.prompt || '');
@@ -281,6 +288,9 @@ if (fs.existsSync(videoJsonPath)) {
   narrations = extractNarration(slides);
   sourceLabel = `slides.json (${slides.length} slides)`;
 }
+
+// File naming: "scene-N" for video flow, "slide-N" for carousel flow
+const segmentPrefix = isVideoFlow ? 'scene' : 'slide';
 
 console.log(`  Source: ${sourceLabel}`);
 console.log(`  Total text: ${narrations.reduce((sum, t) => sum + t.length, 0)} chars\n`);
@@ -295,9 +305,9 @@ const startTime = Date.now();
 
 try {
   if (activeProvider === 'openai') {
-    results = await generateOpenAITTS(narrations, voiceoverDir);
+    results = await generateOpenAITTS(narrations, voiceoverDir, segmentPrefix);
   } else if (activeProvider === 'elevenlabs') {
-    results = await generateElevenLabsTTS(narrations, voiceoverDir);
+    results = await generateElevenLabsTTS(narrations, voiceoverDir, segmentPrefix);
   } else {
     console.error(`Unknown TTS provider: ${activeProvider}. Supported: openai, elevenlabs`);
     process.exit(1);
@@ -307,18 +317,19 @@ try {
   process.exit(1);
 }
 
-// Write manifest
+// Write manifest — always at voiceover/manifest.json
+const filteredResults = results.filter(Boolean);
 const manifest = {
   provider: activeProvider,
   voice,
   language,
   speed,
   generated_at: new Date().toISOString(),
-  slides: results.filter(Boolean),
-  total_duration: results.filter(Boolean).reduce((sum, r) => sum + r.duration, 0),
+  segments: filteredResults,
+  total_duration: filteredResults.reduce((sum, r) => sum + r.duration, 0),
 };
 
-const manifestPath = path.join(postDir, 'voiceover.json');
+const manifestPath = path.join(voiceoverDir, 'manifest.json');
 fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
 
 const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);

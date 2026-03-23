@@ -272,7 +272,7 @@ const manifest = {
   total_duration: successClips.reduce((sum, r) => sum + r.duration, 0),
 };
 
-const manifestPath = path.join(postDir, 'ai-video.json');
+const manifestPath = path.join(videoDir, 'manifest.json');
 fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
 
 const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);

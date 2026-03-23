@@ -77,11 +77,16 @@ if (!fs.existsSync(videoJsonPath)) {
 }
 
 const videoSpec = JSON.parse(fs.readFileSync(videoJsonPath, 'utf-8'));
-const cta = videoSpec.cta;
+let cta = videoSpec.cta;
 
+// Auto-generate CTA from brand config if not specified in video.json
 if (!cta) {
-  console.error('FATAL: video.json has no "cta" field.');
-  process.exit(1);
+  const handle = brand.handle || brand.name || '';
+  cta = {
+    title: handle ? `Follow @${handle}` : 'Follow for More',
+    body: brand.tagline || 'Follow for more content like this!',
+  };
+  console.log(`  [cta] Auto-generated from brand config: "${cta.title}"`);
 }
 
 // ---------------------------------------------------------------------------
@@ -173,8 +178,11 @@ const html = tmpl.cta(ctaSlide, brand, 1, dim, bgCss, logoBase64, null);
 // Render HTML → PNG with Playwright
 // ---------------------------------------------------------------------------
 
+const ctaDir = path.join(postDir, 'cta');
+if (!fs.existsSync(ctaDir)) fs.mkdirSync(ctaDir, { recursive: true });
+
 const tmpHtmlPath = path.join(postDir, '.cta-tmp.html');
-const outputPath = path.join(postDir, 'cta-frame.png');
+const outputPath = path.join(ctaDir, 'frame.png');
 
 fs.writeFileSync(tmpHtmlPath, html);
 

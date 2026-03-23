@@ -303,6 +303,53 @@ Caption format in `caption.txt`:
 #hashtag1 #hashtag2 #hashtag3 ...
 ```
 
+### Directory Structure (Strict — agents MUST follow these paths)
+
+**Carousel flow (slides.json):**
+```
+{post-dir}/
+  slides.json                         ← content definition
+  caption.txt                         ← social media caption + hashtags
+  backgrounds/                        ← AI-generated background PNGs
+  backgrounds-compressed/             ← ffmpeg-compressed JPGs
+  instagram/                          ← per-format output
+    html/                             ← rendered HTML slides
+    final/                            ← final PNG slides + optional MP4
+  tiktok/
+    html/
+    final/
+  voiceover/                          ← TTS audio (if enabled)
+    slide-1.mp3, slide-2.mp3, ...
+    manifest.json
+  ai-video/                           ← Kling clips (if ai_video enabled)
+    clip-1.mp4, clip-2.mp4, ...
+    manifest.json
+```
+
+**AI Video flow (video.json) — THESE PATHS ARE DIFFERENT FROM CAROUSEL:**
+```
+{post-dir}/
+  video.json                          ← content definition (scenes, cta, model)
+  caption.txt                         ← social media caption + hashtags
+  ai-video/                           ← Kling text-to-video clips
+    clip-1.mp4, clip-2.mp4, ...
+    manifest.json                     ← clip metadata
+  voiceover/                          ← TTS audio per scene
+    scene-1.mp3, scene-2.mp3, ...    ← NOTE: "scene-N" not "slide-N"
+    manifest.json                     ← segment metadata
+  cta/                                ← branded CTA end-card
+    frame.png                         ← rendered CTA slide
+  final/                              ← composited output (NO format subdir!)
+    postgen-video.mp4                 ← ONE file for all platforms
+```
+
+**CRITICAL DIFFERENCES for video flow:**
+- Voiceover files are named `scene-N.mp3` (not `slide-N.mp3`)
+- Manifests live INSIDE their directories (`ai-video/manifest.json`, `voiceover/manifest.json`)
+- CTA frame is at `cta/frame.png` (not `cta-frame.png` at root)
+- Final output is at `final/postgen-video.mp4` (NOT `tiktok/final/` — there's no format subdir)
+- There is NO `instagram/`, `tiktok/` directory for video flow — ONE video works everywhere
+
 ### Step 3: Run the pipeline
 
 **The orchestrator automatically detects which flow to run** based on which content file exists in the post directory:
@@ -370,7 +417,7 @@ If the pipeline fails, look at the output to identify the failure point. The pip
 | `generate-tts.mjs` fails | Missing TTS credentials | Add openai_api_key or elevenlabs_api_key to config or env |
 | `generate-ai-video.mjs` fails on video.json | Kling API error, rate limit, or invalid scene prompt | Check Kling credentials and quota, verify scene prompts are detailed enough, retry |
 | `generate-ai-video.mjs` fails (carousel flow) | Kling API error or timeout | Check Kling credentials, retry, or drop `ai_video` flag |
-| `composite-video.mjs` fails | ffmpeg issue or missing clips | Check video.json or ai-video.json and voiceover.json exist, ensure ffmpeg works |
+| `composite-video.mjs` fails | ffmpeg issue or missing clips | Check ai-video/manifest.json and voiceover/manifest.json exist, ensure ffmpeg works |
 | Pipeline times out | Slow API or network | Increase timeout: `--timeout 900000` (15 min) |
 
 To retry from a specific step, run that script individually:
@@ -413,7 +460,7 @@ If the verification reports only **WARNINGS** (e.g. fallback gradients, long tex
 The final PNG images are in `<post-dir>/<format>/final/`. Report the output path and number of slides generated per format. If video was also generated, mention the MP4 path.
 
 **For AI video posts (video.json):**
-The composited video is at `<post-dir>/tiktok/final/postgen-video.mp4`. This is ONE file that works on all vertical platforms. Tell the user:
+The composited video is at `<post-dir>/final/postgen-video.mp4`. This is ONE file that works on all vertical platforms. Tell the user:
 - The video includes AI-generated clips, voiceover narration, burned-in subtitles, and a branded CTA end-card
 - They can repost this same file to TikTok, Instagram Reels, and YouTube Shorts
 - Do NOT say "here's the TikTok version" — it's a universal vertical video
