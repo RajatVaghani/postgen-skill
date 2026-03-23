@@ -1,0 +1,22 @@
+interface:
+  display_name: "PostGen"
+  short_description: "Generate social media carousel posts and videos from ideas"
+  icon: "🎨"
+  category: "content-creation"
+  default_prompt: "Use $postgen to generate a social media carousel post"
+  example_prompts:
+    - "Create an Instagram carousel about 5 productivity tips for remote workers"
+    - "Make a TikTok video about the benefits of morning routines"
+    - "Generate a Reel promoting our new product launch"
+    - "Create carousel slides about healthy meal prep ideas for all platforms"
+  capabilities:
+    - "Image carousel generation (Instagram 4:5, TikTok 9:16)"
+    - "Video slideshow generation (TikTok, Reels, YouTube Shorts)"
+    - "AI background image generation (Google Gemini or OpenAI)"
+    - "Two visual templates: Bold (dark/cinematic) and Minimal (clean/warm)"
+    - "Brand customization: colors, logo, fonts, CTA links"
+    - "Auto-generated captions and hashtags"
+  requirements:
+    - "Node.js >= 18"
+    - "ffmpeg (for compression and video)"
+    - "API key for Google GenAI or OpenAI (image generation)"
