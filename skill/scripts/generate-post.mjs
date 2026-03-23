@@ -2,32 +2,32 @@
 /**
  * PostGen – Full pipeline orchestrator.
  *
+ * Supports TWO distinct flows based on which content file exists:
+ *
+ * ┌─────────────────────────────────────────────────────────────────┐
+ * │  FLOW A: Carousel (slides.json)                                │
+ * │  → backgrounds → compress → build HTML → render PNG → video    │
+ * │  Per-format: instagram (4:5), tiktok (9:16)                    │
+ * ├─────────────────────────────────────────────────────────────────┤
+ * │  FLOW B: AI Video (video.json)                                 │
+ * │  → Kling text-to-video → TTS voiceover → composite (w/ CTA)   │
+ * │  ONE video output (9:16). Repost to TikTok/Reels/Shorts.      │
+ * │  No slides.json needed. No backgrounds. No carousel.           │
+ * └─────────────────────────────────────────────────────────────────┘
+ *
  * Usage:
  *   node generate-post.mjs <post-dir> [--skip-video] [--skip-compress] [--dry-run]
  *                                      [--timeout <ms>] [--ai-video] [--voiceover]
  *                                      [--tts-provider openai|elevenlabs]
  *
- * Runs the complete pipeline in order:
- *   1. generate-backgrounds       (AI background images)
- *   2. compress-backgrounds       (ffmpeg PNG→JPG)
- *   3. build-slides               (HTML slide builder)
- *   4. render-slides              (Playwright HTML→PNG)
- *   5. generate-video             (basic ffmpeg slideshow — optional)
- *   6. generate-tts               (voiceover — optional, requires --voiceover or output_type=video)
- *   7. generate-ai-video          (Kling image-to-video — optional, requires --ai-video)
- *   8. composite-video            (stitch clips + audio + subtitles — when ai-video or voiceover)
- *   9. verify-output
- *
  * Flags:
- *   --dry-run            Validate everything without generating (no API calls, no rendering)
- *   --skip-video         Skip ALL video generation (basic + AI + composite)
- *   --skip-compress      Skip ffmpeg background compression
- *   --ai-video           Enable Kling AI video generation (image-to-video per slide)
- *   --voiceover          Enable TTS voiceover generation
+ *   --dry-run            Validate without generating (no API calls)
+ *   --skip-video         Skip ALL video generation (carousel flow only)
+ *   --skip-compress      Skip ffmpeg background compression (carousel flow only)
+ *   --ai-video           Enable Kling AI video (carousel flow: image-to-video per slide)
+ *   --voiceover          Enable TTS voiceover
  *   --tts-provider <p>   TTS provider: openai or elevenlabs (auto-detects if omitted)
  *   --timeout <ms>       Per-step timeout in ms (default: 600000 = 10 minutes)
- *
- * Expects slides.json to already exist in <post-dir>.
  */
 import { execSync } from 'child_process';
 import fs from 'fs';
@@ -62,15 +62,22 @@ for (let i = 0; i < args.length; i++) {
 postDir = path.resolve(postDir);
 
 // ---------------------------------------------------------------------------
-// Preflight checks
+// Detect flow: video.json → Flow B (AI Video), slides.json → Flow A (Carousel)
 // ---------------------------------------------------------------------------
 
-console.log('=== PostGen Pipeline ===\n');
+const hasVideoJson = fs.existsSync(path.join(postDir, 'video.json'));
+const hasSlidesJson = fs.existsSync(path.join(postDir, 'slides.json'));
 
-if (!fs.existsSync(path.join(postDir, 'slides.json'))) {
-  console.error('FATAL: slides.json not found in ' + postDir);
+if (!hasVideoJson && !hasSlidesJson) {
+  console.error('FATAL: Neither video.json nor slides.json found in ' + postDir);
+  console.error('  Create video.json for AI video posts, or slides.json for carousel posts.');
   process.exit(1);
 }
+
+// video.json takes priority — it's a completely separate flow
+const flowType = hasVideoJson ? 'video' : 'carousel';
+
+console.log('=== PostGen Pipeline ===\n');
 
 const wsRoot = findWorkspaceRoot(postDir);
 if (!wsRoot) {
@@ -80,27 +87,164 @@ if (!wsRoot) {
 
 const config = loadConfig(postDir);
 
-// Validate config essentials
+// ---------------------------------------------------------------------------
+// Shared: system dependency checks
+// ---------------------------------------------------------------------------
+
+let hasFFmpeg = false;
+try {
+  execSync('ffmpeg -version', { stdio: 'pipe' });
+  hasFFmpeg = true;
+} catch { /* no ffmpeg */ }
+
+let hasChromium = false;
+try {
+  const nmDir = path.join(wsRoot, 'node_modules');
+  if (fs.existsSync(path.join(nmDir, 'playwright'))) hasChromium = true;
+} catch { /* can't check */ }
+
+// Validate brand config
 const configIssues = [];
 if (!config.brand?.name || config.brand.name === 'My Brand') {
   configIssues.push('brand.name is not configured (still default "My Brand")');
 }
+if (configIssues.length > 0) {
+  console.error('CONFIG ISSUES:');
+  for (const issue of configIssues) console.error(`  [!] ${issue}`);
+  console.log();
+}
+
+// ---------------------------------------------------------------------------
+// Pipeline runner
+// ---------------------------------------------------------------------------
+
+const NODE_PATH = path.join(wsRoot, 'node_modules');
+const env = { ...process.env, NODE_PATH };
+const pipelineStart = Date.now();
+
+function run(script, extraArgs = '', allowFailure = false) {
+  const cmd = `node "${path.join(__dirname, script)}" "${postDir}" ${extraArgs}`.trim();
+  const stepStart = Date.now();
+  const elapsed = () => ((Date.now() - pipelineStart) / 1000).toFixed(0);
+  console.log(`\n>>> [${elapsed()}s] ${script} ${extraArgs}\n`);
+  try {
+    execSync(cmd, { stdio: 'inherit', env, timeout: stepTimeout });
+    console.log(`\n    ${script} completed in ${((Date.now() - stepStart) / 1000).toFixed(1)}s`);
+  } catch (err) {
+    const dur = ((Date.now() - stepStart) / 1000).toFixed(1);
+    if (err.killed || err.signal === 'SIGTERM') {
+      console.error(`\n    ${script} TIMED OUT after ${dur}s (limit: ${stepTimeout / 1000}s)`);
+    } else {
+      console.error(`\n    ${script} FAILED after ${dur}s`);
+    }
+    if (!allowFailure) {
+      console.error(`\nPipeline aborted at: ${script}`);
+      console.error(`To retry from this step, run the individual script manually.`);
+      process.exit(1);
+    }
+  }
+}
+
+// ============================================================================
+// FLOW B: AI Video Pipeline (video.json)
+// ============================================================================
+
+if (flowType === 'video') {
+  const videoSpec = JSON.parse(fs.readFileSync(path.join(postDir, 'video.json'), 'utf-8'));
+
+  // Resolve Kling credentials
+  const klingCreds = resolveVideoKey('kling', config);
+  if (!klingCreds) {
+    console.error('FATAL: Kling credentials not found for AI video generation.');
+    console.error('  Set kling_access_key + kling_secret_key in postgen.config.json,');
+    console.error('  or KLING_ACCESS_KEY + KLING_SECRET_KEY env vars.');
+    process.exit(1);
+  }
+
+  // Resolve TTS
+  const vTtsProvider = ttsProvider || videoSpec.tts_provider || '';
+  const hasVoiceoverEnabled = videoSpec.voiceover !== false;
+  const hasTTS = resolveVideoKey('openai-tts', config) || resolveVideoKey('elevenlabs', config);
+
+  // Print plan
+  const sceneCount = videoSpec.scenes?.length || 0;
+  const totalDur = videoSpec.scenes?.reduce((s, sc) => s + Number(sc.duration || 5), 0) || 0;
+  const hasCta = !!videoSpec.cta;
+
+  console.log('Flow: AI VIDEO (video.json)');
+  console.log(`  Scenes: ${sceneCount} (${totalDur}s AI video${hasCta ? ' + 5s CTA' : ''})`);
+  console.log(`  Model: ${videoSpec.model || 'kling-v3'}`);
+  console.log(`  Aspect ratio: ${videoSpec.aspect_ratio || '9:16'}`);
+  console.log(`  Voiceover: ${hasVoiceoverEnabled && hasTTS ? (vTtsProvider || 'auto-detect') : 'off'}`);
+  console.log(`  CTA end-card: ${hasCta ? `"${videoSpec.cta.title}"` : 'none'}`);
+  console.log(`  Kling: credentials found`);
+  console.log(`  ffmpeg: ${hasFFmpeg ? 'available' : 'NOT FOUND (compositing will fail)'}`);
+  console.log(`  Playwright: ${hasChromium ? 'available' : 'NOT FOUND (CTA rendering will fail)'}`);
+  console.log(`  Step timeout: ${stepTimeout / 1000}s`);
+  console.log(`  Output: ONE video file (repost to TikTok, Reels, Shorts)`);
+  if (dryRun) console.log('  MODE: DRY RUN');
+  console.log();
+
+  if (dryRun) {
+    console.log('--- Dry run: video.json looks valid ---');
+    console.log(`  ${sceneCount} scenes, ${totalDur}s total${hasCta ? ' + 5s CTA' : ''}`);
+    console.log('\n=== Dry run complete ===');
+    process.exit(0);
+  }
+
+  // Step 1: Generate AI video clips (Kling text-to-video)
+  run('generate-ai-video.mjs');
+
+  // Step 2: Generate TTS voiceover
+  if (hasVoiceoverEnabled && hasTTS) {
+    const ttsArgs = vTtsProvider ? `--provider ${vTtsProvider}` : '';
+    run('generate-tts.mjs', ttsArgs);
+  }
+
+  // Step 3: Composite — stitches AI clips + CTA end-card + voiceover + subtitles
+  if (hasFFmpeg) {
+    run('composite-video.mjs');
+  } else {
+    console.error('\nFATAL: ffmpeg is required for video compositing.');
+    process.exit(1);
+  }
+
+  // Final summary
+  const totalElapsed = ((Date.now() - pipelineStart) / 1000).toFixed(1);
+  console.log(`\n=== Pipeline complete in ${totalElapsed}s ===`);
+  console.log(`Output: ${postDir}`);
+  console.log(`Type: AI video (text-to-video)`);
+
+  // Find the composited video
+  const videoPath = path.join(postDir, 'tiktok', 'final', 'postgen-video.mp4');
+  if (fs.existsSync(videoPath)) {
+    const sizeMB = (fs.statSync(videoPath).size / 1024 / 1024).toFixed(1);
+    console.log(`  Video: ${videoPath} (${sizeMB}MB)`);
+    console.log(`  Repost to: TikTok, Instagram Reels, YouTube Shorts`);
+  }
+  if (fs.existsSync(path.join(postDir, 'voiceover.json'))) {
+    console.log(`  Voiceover: generated`);
+  }
+  if (fs.existsSync(path.join(postDir, 'ai-video.json'))) {
+    console.log(`  AI clips: generated`);
+  }
+
+  process.exit(0);
+}
+
+// ============================================================================
+// FLOW A: Carousel Pipeline (slides.json)
+// ============================================================================
+
+// Validate image provider
 if (!config.image_provider) {
   configIssues.push('image_provider is not set');
 }
 const provider = config.image_provider || 'google-genai';
 const resolved = resolveApiKey(provider, config);
 if (!resolved) {
-  configIssues.push(`No API key found for provider "${provider}"`);
-}
-if (configIssues.length > 0) {
-  console.error('CONFIG ISSUES:');
-  for (const issue of configIssues) console.error(`  [!] ${issue}`);
-  if (!resolved) {
-    console.error('\nCannot proceed without an API key. Run setup or add the key.');
-    process.exit(1);
-  }
-  console.log();
+  console.error(`FATAL: No API key found for image provider "${provider}". Run setup or add the key.`);
+  process.exit(1);
 }
 
 // Load slides config
@@ -118,45 +262,21 @@ if (slidesRaw.tts_provider && !ttsProvider) ttsProvider = slidesRaw.tts_provider
 
 // If output_type is 'video' and no explicit flags, enable voiceover by default
 if ((outputType === 'video' || outputType === 'both') && !skipVideo && !enableVoiceover) {
-  // Check if a TTS provider is available before auto-enabling
-  const hasTTS = resolveVideoKey('openai-tts', config) ||
-                 resolveVideoKey('elevenlabs', config);
+  const hasTTS = resolveVideoKey('openai-tts', config) || resolveVideoKey('elevenlabs', config);
   if (hasTTS) enableVoiceover = true;
 }
 
 // Check Kling credentials for AI video
-let hasKling = false;
 if (enableAiVideo) {
   const klingCreds = resolveVideoKey('kling', config);
-  if (klingCreds) {
-    hasKling = true;
-  } else {
+  if (!klingCreds) {
     console.warn('  [!] AI video requested but no Kling credentials found — skipping AI video');
     enableAiVideo = false;
   }
 }
 
-// Check system dependencies
-let hasFFmpeg = false;
-try {
-  execSync('ffmpeg -version', { stdio: 'pipe' });
-  hasFFmpeg = true;
-} catch {
-  // no ffmpeg
-}
-
-let hasChromium = false;
-try {
-  const nmDir = path.join(wsRoot, 'node_modules');
-  if (fs.existsSync(path.join(nmDir, 'playwright'))) {
-    hasChromium = true;
-  }
-} catch {
-  // can't check
-}
-
 // Print plan
-console.log('Pipeline plan:');
+console.log('Flow: CAROUSEL (slides.json)');
 console.log(`  Post directory: ${postDir}`);
 console.log(`  Formats: ${formats.join(', ')}`);
 console.log(`  Output type: ${skipVideo ? 'image only' : 'image + video'}`);
@@ -170,54 +290,13 @@ if (dryRun) console.log('  MODE: DRY RUN (no generation, no rendering)');
 console.log();
 
 if (dryRun) {
-  // Run validation only
   console.log('--- Dry run: validating slides.json ---');
   try {
-    run('verify-output.mjs', '', true); // validate-only mode
-  } catch {
-    // verification issues are reported by the script
-  }
+    run('verify-output.mjs', '', true);
+  } catch { /* reported by script */ }
   console.log('\n=== Dry run complete ===');
   console.log('Everything looks good. Remove --dry-run to generate for real.');
   process.exit(0);
-}
-
-// ---------------------------------------------------------------------------
-// Pipeline execution
-// ---------------------------------------------------------------------------
-
-const NODE_PATH = path.join(wsRoot, 'node_modules');
-const env = { ...process.env, NODE_PATH };
-
-const pipelineStart = Date.now();
-let currentStep = '';
-
-function run(script, extraArgs = '', allowFailure = false) {
-  const cmd = `node "${path.join(__dirname, script)}" "${postDir}" ${extraArgs}`.trim();
-  currentStep = script;
-  const stepStart = Date.now();
-  console.log(`\n>>> [${stepLabel()}] ${script} ${extraArgs}\n`);
-  try {
-    execSync(cmd, { stdio: 'inherit', env, timeout: stepTimeout });
-    const elapsed = ((Date.now() - stepStart) / 1000).toFixed(1);
-    console.log(`\n    ${script} completed in ${elapsed}s`);
-  } catch (err) {
-    const elapsed = ((Date.now() - stepStart) / 1000).toFixed(1);
-    if (err.killed || err.signal === 'SIGTERM') {
-      console.error(`\n    ${script} TIMED OUT after ${elapsed}s (limit: ${stepTimeout / 1000}s)`);
-    } else {
-      console.error(`\n    ${script} FAILED after ${elapsed}s`);
-    }
-    if (!allowFailure) {
-      console.error(`\nPipeline aborted at: ${script}`);
-      console.error(`To retry from this step, run the individual script manually.`);
-      process.exit(1);
-    }
-  }
-}
-
-function stepLabel() {
-  return `${((Date.now() - pipelineStart) / 1000).toFixed(0)}s`;
 }
 
 // 1. Generate backgrounds
@@ -235,12 +314,9 @@ for (const fmt of formats) {
   run('build-slides.mjs', `--format ${fmt}`);
   run('render-slides.mjs', `--format ${fmt}`);
 
-  // 5. Basic slideshow video (ffmpeg PNG→MP4)
+  // 5. Basic slideshow video (only if NOT using AI video)
   if (!skipVideo && hasFFmpeg && !enableAiVideo) {
-    // Only generate basic video if NOT using AI video (AI video replaces this)
     run('generate-video.mjs', `--format ${fmt}`);
-  } else if (!skipVideo && !hasFFmpeg && !enableAiVideo) {
-    console.log(`\n>>> Skipping basic video for ${fmt} (ffmpeg not available)`);
   }
 }
 
@@ -250,18 +326,14 @@ if (enableVoiceover && !skipVideo) {
   run('generate-tts.mjs', ttsArgs);
 }
 
-// 7. AI Video (Kling image-to-video) — per format
+// 7. AI Video (Kling) — runs once (output is format-independent)
 if (enableAiVideo && !skipVideo) {
-  for (const fmt of formats) {
-    run('generate-ai-video.mjs', `--format ${fmt}`);
-  }
+  run('generate-ai-video.mjs');
 }
 
-// 8. Composite video (stitch AI clips + voiceover + subtitles)
+// 8. Composite video (stitch AI clips + voiceover + subtitles) — runs once
 if (!skipVideo && hasFFmpeg && (enableAiVideo || enableVoiceover)) {
-  for (const fmt of formats) {
-    run('composite-video.mjs', `--format ${fmt}`);
-  }
+  run('composite-video.mjs');
 }
 
 // 9. Verify output

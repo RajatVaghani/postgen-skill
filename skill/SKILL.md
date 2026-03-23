@@ -136,32 +136,30 @@ See [configuration.md](references/configuration.md) for all config fields and AP
 
 **Do NOT generate anything until the essential information is gathered.** If the user's initial message already clearly answers some questions, skip those and only ask what remains unanswered. Ask all remaining questions together in one message, then wait for answers.
 
-**Question 1 — Platform:**
-> Which platform(s) is this for?
-> - Instagram
-> - TikTok
-> - YouTube
-> - All platforms
-
-**Question 2 — Format:**
+**Question 1 — Format:**
 > What format do you want?
-> - Carousel (swipeable image slides)
-> - Video (MP4 slideshow)
-> - Both
+> - **Carousel** (swipeable image slides — Instagram, TikTok)
+> - **AI Video** (30s cinematic video with voiceover — TikTok, Reels, Shorts)
+> - **Both** (carousel + video)
 
-**Question 3 — Content:**
+This is the most important question because it determines which flow to use:
+- **Carousel** → create `slides.json` → runs carousel pipeline (backgrounds, slides, render)
+- **AI Video** → create `video.json` → runs video pipeline (Kling text-to-video, TTS, composite)
+- **Both** → create both files, run both pipelines separately
+
+**CRITICAL: These are TWO COMPLETELY SEPARATE FLOWS.** AI Video does NOT need slides.json. Carousel does NOT need video.json. Never mix them up.
+
+**Question 2 — Content:**
 > What should the post be about?
 > - Provide a topic/idea and I'll generate the content
-> - You provide the content/copy for each slide
+> - You provide the content/copy
 
-**Question 4 — Caption & Hashtags:**
+**Question 3 — Caption & Hashtags:**
 > How should I handle the caption and hashtags?
 > - Auto-generate them based on the content
 > - You'll provide them
 
-**Smart question skipping:** If the user says "Create a TikTok carousel about productivity tips", questions 1 (TikTok), 2 (carousel), and 3 (productivity tips, auto-generate) are already answered. Only ask question 4 about captions. Use your judgment — the goal is efficiency, not rigidly asking all 4 every time.
-
-**Question 5 — Visual Style (MANDATORY):**
+**Question 4 — Visual Style:**
 > What visual style do you want?
 > - **Bold** — Dark cinematic, giant step numbers, uppercase titles
 > - **Minimal** — Light & clean, frosted glass cards, soft tones
@@ -170,30 +168,12 @@ See [configuration.md](references/configuration.md) for all config fields and AP
 > - **Stack** — Full-bleed backgrounds, bottom-anchored text, story-style
 > - **Clean** — Ultra-minimal, duotone wash, light typography
 > - **Surprise me** — I'll pick one that hasn't been used recently
->
-> Here's a quick reference: Bold/Neon are great for tech, finance, authority content. Minimal/Clean suit lifestyle, luxury, wellness. Magazine works for thought leadership and education. Stack is best for visual-first content like travel and food.
 
-**IMPORTANT:** You MUST ask Question 5 unless the user has explicitly stated a style preference (e.g. "make it dark and techy" → `neon`, "keep it clean and minimal" → `clean` or `minimal`). Do NOT silently default to any template. The user's feed diversity depends on conscious template choice.
+For **carousel**: this sets the slide template. For **AI video**: this sets the CTA end-card style. Bold/Neon are great for tech, finance, authority content. Minimal/Clean suit lifestyle, luxury, wellness. Magazine works for thought leadership and education. Stack is best for visual-first content like travel and food.
 
-If the user says "Surprise me" or doesn't care, set `"template"` to `"auto"` in slides.json — the pipeline will automatically pick a template that avoids the last 2 used, ensuring feed variety. If the user picks a specific style, set the template name in slides.json.
+**Smart question skipping:** If the user says "Create a TikTok AI video about productivity", questions 1 (AI Video), 2 (productivity, auto-generate) are already answered. Only ask questions 3 and 4. Use your judgment — the goal is efficiency, not rigidly asking every time.
 
-**The pipeline has a safety net:** If no template is set in slides.json AND no `--template` flag is passed, the build script automatically rotates through templates based on post history. But you should still ask — it gives users control and sets their expectations for the output.
-
-Once you have all answers, map them to `output_type`, `formats`, and proceed.
-
-| Platform answer | Format answer | `formats` | `output_type` |
-|-----------------|---------------|-----------|---------------|
-| Instagram | Carousel | `["instagram"]` | `"image"` |
-| Instagram | Video | `["tiktok"]` | `"video"` |
-| TikTok | Carousel | `["tiktok"]` | `"image"` |
-| TikTok | Video | `["tiktok"]` | `"video"` |
-| YouTube | Video | `["tiktok"]` | `"video"` |
-| All platforms | Carousel | `["instagram", "tiktok"]` | `"image"` |
-| All platforms | Video | `["tiktok"]` | `"video"` |
-| All platforms | Both | `["instagram", "tiktok"]` | `"both"` |
-| Any | Both | `["instagram", "tiktok"]` | `"both"` |
-
-Note: YouTube only supports video (Shorts). If the user picks YouTube + Carousel, explain that YouTube only supports video and ask if they also want carousel for another platform.
+**IMPORTANT: For AI Video, the video is generated ONCE and reposted to all vertical platforms.** TikTok, Instagram Reels, and YouTube Shorts all use the same 9:16 format. Do NOT generate separate videos per platform. One video file works everywhere.
 
 ### Step 1: Determine the output folder
 
@@ -205,11 +185,11 @@ node <skill-path>/scripts/next-post-dir.mjs <workspace-path>
 
 This prints the absolute path (e.g. `/path/to/workspace/output/2026-03-23/001/`). Capture this path and use it as `<post-dir>` for all subsequent steps. The script handles date folders and numbering automatically — no need to manually check existing folders.
 
-### Step 2: Choose your content flow
+### Step 2: Create the content file
 
-Decide whether to generate a carousel post (image-based with slides.json) or a video post (Kling text-to-video with video.json). These are two separate workflows.
+Based on the user's answer to Question 1, create the appropriate content file. **These are TWO COMPLETELY SEPARATE FLOWS — never create slides.json for a video post, and never create video.json for a carousel post.**
 
-#### Option A: Carousel Flow (slides.json)
+#### Option A: Carousel Flow → create `slides.json`
 
 For swipeable image carousels or basic video slideshows, compose `slides.json`. Read [slide-content-guide.md](references/slide-content-guide.md) for the full schema, template guidelines, and background prompt patterns.
 
@@ -241,9 +221,11 @@ Key content rules:
 - Every slide needs a `background_prompt` for AI image generation -- just describe the scene, the pipeline automatically generates portrait images in the correct aspect ratio for the target format
 - If assets exist in the workspace `assets/` folder, include `asset_placements` mapping filenames to slides and usage types (watermark, featured_image, background, cta_logo)
 
-#### Option B: Text-to-Video Flow (video.json)
+#### Option B: AI Video Flow → create `video.json`
 
-For AI-generated video posts with scene descriptions, voiceover narration, and subtitle compositing, compose `video.json` instead. This creates a standalone video using Kling's text-to-video API — no image carousel generation.
+**THIS IS A COMPLETELY SEPARATE FLOW FROM CAROUSELS.** Do NOT create slides.json. Do NOT run background generation. Do NOT run build-slides or render-slides. The video pipeline reads ONLY video.json and produces ONE MP4 file that can be reposted to TikTok, Instagram Reels, and YouTube Shorts.
+
+For AI-generated video posts with scene descriptions, voiceover narration, and subtitle compositing, compose `video.json`. This creates a standalone 30s video using Kling's text-to-video API.
 
 **Schema:**
 
@@ -323,32 +305,44 @@ Caption format in `caption.txt`:
 
 ### Step 3: Run the pipeline
 
-Run the full pipeline with a single command:
+**The orchestrator automatically detects which flow to run** based on which content file exists in the post directory:
+- `video.json` present → AI Video pipeline (Flow B)
+- `slides.json` present → Carousel pipeline (Flow A)
+- Both present → AI Video pipeline takes priority
+
+Run the pipeline with a single command:
 
 ```bash
 node <skill-path>/scripts/generate-post.mjs <post-dir>
 ```
 
-**IMPORTANT — Managing Long-Running Generation:**
+#### Flow A: Carousel Pipeline (slides.json)
 
-The pipeline typically takes **2-5 minutes** depending on the number of slides (each background image requires an API call). Before starting:
+Runs: backgrounds → compress → build HTML → render PNG → (optional: basic video, AI video, voiceover, composite).
 
-1. Tell the user: "Generating your post now — this typically takes 2-5 minutes for [N] slides. I'll share the results as soon as it's ready."
-2. **Do NOT run any other commands while the pipeline is running.** Wait for it to complete.
-3. The pipeline prints progress lines like `[30s] Generating slide 3 of 7...` — these confirm it's still working. If you see these, the pipeline is healthy.
+Takes **2-5 minutes** for image-only, **5-15 minutes** if AI video is enabled.
 
-The pipeline runs all steps in order: preflight → backgrounds → compress → build HTML → render PNG → basic video → voiceover TTS → AI video → composite → verify. It reads `output_type`, `formats`, `ai_video`, `voiceover`, and `tts_provider` from `slides.json` automatically:
-- If `output_type` is `"image"`, all video generation is skipped
-- If `output_type` is `"video"` or `"both"` (or omitted), images + basic video are produced
-- If `ai_video` is `true`, Kling AI generates animated clips from each slide PNG (replaces basic slideshow)
-- If `voiceover` is `true`, TTS narration is generated from slide text
-- When both AI video and voiceover are enabled, the pipeline composites everything: AI clips + voiceover audio + burned-in subtitles → final MP4
-
+Settings are read from `slides.json`: `output_type`, `formats`, `ai_video`, `voiceover`, `tts_provider`.
 Override flags: `--skip-video`, `--skip-compress`, `--ai-video`, `--voiceover`, `--tts-provider openai|elevenlabs`.
 
-**Enhanced video generation (AI video + voiceover) takes significantly longer** — expect 5-15 minutes depending on slide count, because each slide requires a Kling AI video generation task (~1-3 min each). Tell the user about the expected wait time.
+#### Flow B: AI Video Pipeline (video.json)
 
-**Timeout protection:** Each pipeline step has a 10-minute timeout. If a step hangs (e.g. an API is unresponsive), it will be killed and the pipeline will report which step failed. Background generation has per-image timeouts (90 seconds) and retries (3 attempts with exponential backoff).
+Runs: Kling text-to-video → TTS voiceover → composite (AI clips + CTA + voiceover + subtitles).
+
+Takes **5-15 minutes** (Kling generates ~1-3 min per batch, 3 batches for a 30s video).
+
+**Produces ONE video file.** This single MP4 is reposted to TikTok, Instagram Reels, and YouTube Shorts — they all use 9:16 vertical format. Do NOT run the pipeline multiple times for different platforms.
+
+Settings are read from `video.json`: `model`, `mode`, `aspect_ratio`, `voiceover`, `tts_provider`, `template` (for CTA), `cta`.
+No slides.json needed. No background generation. No slide rendering.
+
+#### Managing Long-Running Generation
+
+1. Tell the user the expected wait time before starting.
+2. **Do NOT run any other commands while the pipeline is running.** Wait for it to complete.
+3. The pipeline prints progress with timestamps (`[30s] script-name.mjs`) — these confirm it's working.
+
+**Timeout protection:** Each pipeline step has a 10-minute timeout. If a step hangs, it will be killed and the pipeline reports which step failed.
 
 ### Step 3b: Checking Progress (if needed)
 
@@ -375,7 +369,7 @@ If the pipeline fails, look at the output to identify the failure point. The pip
 | `compress-backgrounds.mjs` fails | ffmpeg missing | Install ffmpeg, or use `--skip-compress` |
 | `generate-tts.mjs` fails | Missing TTS credentials | Add openai_api_key or elevenlabs_api_key to config or env |
 | `generate-ai-video.mjs` fails on video.json | Kling API error, rate limit, or invalid scene prompt | Check Kling credentials and quota, verify scene prompts are detailed enough, retry |
-| `generate-ai-video.mjs` fails on slides.json | Kling API error or timeout | Check Kling credentials, retry, or drop `ai_video` flag |
+| `generate-ai-video.mjs` fails (carousel flow) | Kling API error or timeout | Check Kling credentials, retry, or drop `ai_video` flag |
 | `composite-video.mjs` fails | ffmpeg issue or missing clips | Check video.json or ai-video.json and voiceover.json exist, ensure ffmpeg works |
 | Pipeline times out | Slow API or network | Increase timeout: `--timeout 900000` (15 min) |
 
@@ -415,15 +409,14 @@ If the verification reports only **WARNINGS** (e.g. fallback gradients, long tex
 
 ### Step 6: Deliver results
 
-The final PNG images are in `<post-dir>/<format>/final/`. Report the output path and number of slides generated.
+**For carousel posts (slides.json):**
+The final PNG images are in `<post-dir>/<format>/final/`. Report the output path and number of slides generated per format. If video was also generated, mention the MP4 path.
 
-For **image posts** (carousel): tell the user the PNG files are ready to upload as a carousel/slideshow.
-
-For **basic video posts**: mention the MP4 path (`<post-dir>/<format>/final/carousel-video.mp4`) and note the target platform (TikTok, Reels, YouTube Shorts).
-
-For **enhanced video posts** (AI video + voiceover): the composited video is at `<post-dir>/<format>/final/postgen-video.mp4`. This includes AI-animated clips, voiceover narration, and burned-in subtitles. Mention all three features when delivering.
-
-If multiple formats were generated, list each format's output separately.
+**For AI video posts (video.json):**
+The composited video is at `<post-dir>/tiktok/final/postgen-video.mp4`. This is ONE file that works on all vertical platforms. Tell the user:
+- The video includes AI-generated clips, voiceover narration, burned-in subtitles, and a branded CTA end-card
+- They can repost this same file to TikTok, Instagram Reels, and YouTube Shorts
+- Do NOT say "here's the TikTok version" — it's a universal vertical video
 
 ### Dry Run (Pre-validation)
 
