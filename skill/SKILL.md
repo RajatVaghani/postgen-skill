@@ -225,6 +225,8 @@ Key content rules:
 
 **THIS IS A COMPLETELY SEPARATE FLOW FROM CAROUSELS.** Do NOT create slides.json. Do NOT run background generation. Do NOT run build-slides or render-slides. The video pipeline reads ONLY video.json and produces ONE MP4 file that can be reposted to TikTok, Instagram Reels, and YouTube Shorts.
 
+**BEFORE writing video.json, read [video-content-guide.md](references/video-content-guide.md).** It contains content formats, hook patterns, tone rules, scene prompt rules, and a quality checklist. Following this guide is the difference between forgettable content and scroll-stopping content. Every AI video post MUST follow the guide.
+
 For AI-generated video posts with scene descriptions, voiceover narration, and subtitle compositing, compose `video.json`. This creates a standalone 30s video using Kling's text-to-video API.
 
 **Schema:**
@@ -274,9 +276,9 @@ For AI-generated video posts with scene descriptions, voiceover narration, and s
 - `negative_prompt`: Text to exclude from generation (e.g. "blurry, watermark, low quality")
 - `scenes`: Array of scene objects, each with:
   - `scene_number`: Sequential number (1, 2, 3, etc.)
-  - `prompt`: Rich, cinematic description of the visual. Include lighting, camera movement, mood, colors, composition. The more detailed, the better the output.
+  - `prompt`: Rich, cinematic description of the visual. Include lighting, camera movement, mood, colors, composition. The more detailed, the better the output. **NEVER include text, brand names, logos, or readable words in prompts — AI video CANNOT render text accurately**. See [video-content-guide.md](references/video-content-guide.md) for good/bad prompt examples.
   - `duration`: Length of this scene in seconds (typically 5s; use 5 scenes × 5s = 25s to leave room for CTA)
-  - `voiceover_text`: Natural narration for this scene (not slide bullet points — conversational speech)
+  - `voiceover_text`: Natural narration for this scene (not slide bullet points — conversational speech). Brand mentions ARE allowed here — voiceover is text-to-speech, not AI video, so names will be pronounced correctly.
 - `cta`: Call-to-action end-card (branded 5s outro). Fields:
   - `title`: Headline text (e.g. "Follow @YourBrand", "Save This Post")
   - `body`: Supporting text (e.g. "Follow for more content like this!")
@@ -289,6 +291,15 @@ For AI-generated video posts with scene descriptions, voiceover narration, and s
 - Write visually rich prompts with camera directions ("tracking shot", "close-up on...", "wide establishing shot")
 - Keep voiceover_text natural and conversational, not robotic or bullet-pointed
 - All scenes flow together as a cohesive video narrative, ending with the branded CTA
+
+**Content quality (MUST follow [video-content-guide.md](references/video-content-guide.md)):**
+
+- Pick a content format (Myth vs Reality, Did You Know, 3 Signs, What Happens When, This Is Why, POV, Stop Doing This) — rotate formats across posts
+- Hook must be in the FIRST line of Scene 1's voiceover_text — no greetings, no preamble
+- Scene prompts = visuals only (no text, no brands, no logos)
+- Voiceover + subtitles = CAN mention brand names freely
+- CTA end-card = MUST have brand name + call to action
+- Run the quality checklist from the guide before finalizing video.json
 
 ### Step 2b: Generate caption & hashtags
 
