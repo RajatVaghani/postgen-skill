@@ -293,7 +293,29 @@ if (fs.existsSync(videoJsonPath)) {
 const segmentPrefix = isVideoFlow ? 'scene' : 'slide';
 
 console.log(`  Source: ${sourceLabel}`);
-console.log(`  Total text: ${narrations.reduce((sum, t) => sum + t.length, 0)} chars\n`);
+console.log(`  Total text: ${narrations.reduce((sum, t) => sum + t.length, 0)} chars`);
+
+// Word count check: advisory warnings for pacing (voiceover is always fully preserved, never cut off)
+if (isVideoFlow) {
+  const WORDS_PER_SEC = 3;
+  const IDEAL_WORDS_PER_SCENE = 15;
+  let totalWords = 0;
+  narrations.forEach((text, i) => {
+    if (!text) return;
+    const words = text.split(/\s+/).filter(Boolean).length;
+    totalWords += words;
+    if (words > 20) {
+      console.warn(`  ⚠ Scene ${i + 1}: ${words} words (ideal ~${IDEAL_WORDS_PER_SCENE} for 5s). May sound fast.`);
+    }
+  });
+  const targetDuration = narrations.length * 5;
+  const estimatedSpeechDuration = totalWords / WORDS_PER_SEC;
+  console.log(`  Word count: ${totalWords} words across ${narrations.filter(Boolean).length} scenes (~${estimatedSpeechDuration.toFixed(0)}s of speech for ${targetDuration}s of video)`);
+  if (estimatedSpeechDuration > targetDuration * 1.2) {
+    console.warn(`  ⚠ Voiceover may sound rushed — ${totalWords} words is a lot for ${targetDuration}s. Next time aim for ~${targetDuration * WORDS_PER_SEC} words total.`);
+  }
+}
+console.log();
 
 // Create output directory
 const voiceoverDir = path.join(postDir, 'voiceover');

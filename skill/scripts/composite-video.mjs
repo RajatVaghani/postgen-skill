@@ -365,14 +365,38 @@ let tempoRatio = 1.0;
 
 if (hasAudioTrack && Math.abs(audioDuration - videoDuration) > 0.2) {
   tempoRatio = audioDuration / videoDuration;
+
+  if (tempoRatio > 1.15) {
+    console.warn(`  ⚠ Audio is ${((tempoRatio - 1) * 100).toFixed(0)}% longer than video — speech will sound noticeably fast.`);
+    console.warn(`    Tip: reduce word count in video.json voiceover_text (~15 words per 5s scene).`);
+  }
+
   console.log(`  Video: ${videoDuration.toFixed(2)}s | Audio: ${audioDuration.toFixed(2)}s → tempo ×${tempoRatio.toFixed(3)}`);
 
+  // ffmpeg atempo accepts 0.5–2.0 per filter. For ratios outside that range,
+  // chain multiple atempo filters (e.g., 2.5 → atempo=2.0,atempo=1.25).
+  function buildAtempoFilter(ratio) {
+    const filters = [];
+    let remaining = ratio;
+    while (remaining > 2.0) {
+      filters.push('atempo=2.0');
+      remaining /= 2.0;
+    }
+    while (remaining < 0.5) {
+      filters.push('atempo=0.5');
+      remaining /= 0.5;
+    }
+    filters.push(`atempo=${remaining.toFixed(6)}`);
+    return filters.join(',');
+  }
+
   const stretchedPath = path.join(tmpDir, 'audio-stretched.mp3');
+  const atempoFilter = buildAtempoFilter(tempoRatio);
   execSync(
     [
       'ffmpeg -y',
       `-i "${audioTrackPath}"`,
-      `-af "atempo=${tempoRatio.toFixed(6)}"`,
+      `-af "${atempoFilter}"`,
       '-c:a libmp3lame -q:a 2',
       `"${stretchedPath}"`,
     ].join(' '),

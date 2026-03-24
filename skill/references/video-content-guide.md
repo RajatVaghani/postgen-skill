@@ -131,10 +131,11 @@ Voiceover text is what the narrator says during each scene. This IS where brand 
 
 - **Brand mentions are welcome here** — voiceover is text-to-speech audio, not AI-generated video, so names and words will be pronounced correctly
 - Write in natural speech patterns, not bullet points
-- Each scene's voiceover should be 2-3 sentences (roughly 5 seconds of speech)
+- **WORD COUNT MATTERS:** Natural speech pace is ~3 words/second. For a 5s scene, aim for **12-18 words** (2 short sentences). If you write significantly more, the voiceover will be time-stretched to fit the video and may sound noticeably fast.
 - Vary sentence length — mix short punchy lines with slightly longer ones
 - End scene voiceover on transitions: "But here's the thing..." / "And that's where it gets interesting..." / "So what can you do about it?"
 - The final content scene (before CTA) should have a clear conclusion or call to awareness
+- **Total voiceover across all 5 scenes should be 60-90 words** (for 25s of video). Going over 90 words will result in noticeably fast speech.
 
 ---
 
@@ -149,4 +150,4 @@ Before finalizing `video.json`, verify:
 5. **Flow:** Do the scenes progress logically? Hook → develop → evidence/story → conclusion → CTA
 6. **Brand safety:** Zero text/logos/brand names in scene prompts. Brand mentions only in voiceover_text and CTA.
 7. **Duration math:** 5 scenes × 5s = 25s + 5s CTA = 30s total. Don't exceed this.
-8. **Voiceover pacing:** Each scene's voiceover should be roughly 15-25 words (5 seconds of natural speech). Too much text = rushed TTS. Too little = awkward silence.
+8. **Voiceover pacing:** Aim for 12-18 words per scene (5 seconds of natural speech at ~3 words/sec). Total across all scenes should be 60-90 words. Over 20 words in a scene = noticeably fast speech. Under 10 = awkward silence.
