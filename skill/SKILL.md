@@ -108,6 +108,8 @@ After setup completes, walk the user through these details and update `postgen.c
 
 4. **Website**: Also set `brand.website` to their primary website URL (shown on CTA slides).
 
+5. **Custom CTA video** (optional): If the user has a pre-made branded outro/CTA video clip, set `cta_video` in `postgen.config.json` to the path (relative to workspace root or absolute). When set, this video is appended at the end of every AI video instead of the auto-generated CTA frame. If the file doesn't exist or the key is missing, the pipeline falls back to auto-generating a 5s branded CTA from the slide template.
+
 Example config after collecting details:
 ```json
 {
@@ -124,7 +126,8 @@ Example config after collecting details:
     { "title": "Visit Website", "url": "https://acme.co" },
     { "title": "Download App", "url": "https://acme.co/download" },
     { "title": "Contact Us", "url": "https://acme.co/contact" }
-  ]
+  ],
+  "cta_video": "assets/cta-outro.mp4"
 }
 ```
 
@@ -290,7 +293,7 @@ For AI-generated video posts with scene descriptions, voiceover narration, and s
   - Kling: 5 × 10s = 50s AI video + 5s CTA = ~55s total
 - Each scene generates one clip (one API call per scene, no batching)
 - Clips are never trimmed — every frame plays in full
-- The CTA end-card is rendered as a branded slide (same template system as carousels) with a subtle Ken Burns zoom, then appended to the AI video track
+- The CTA end-card is rendered as a branded slide (same template system as carousels) with a subtle Ken Burns zoom, then appended to the AI video track. If the user has set `cta_video` in `postgen.config.json`, their custom video clip is used instead of the auto-generated CTA frame.
 - Write visually rich prompts with camera directions ("tracking shot", "close-up on...", "wide establishing shot")
 - Keep voiceover_text natural and conversational, not robotic or bullet-pointed
 - All scenes flow together as a cohesive video narrative, ending with the branded CTA

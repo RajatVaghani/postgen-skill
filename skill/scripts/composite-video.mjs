@@ -223,50 +223,88 @@ if (hasAiVideo && aiVideo.clips.length > 0) {
 // ---------------------------------------------------------------------------
 
 if (hasCta) {
-  console.log('Step 1b: Rendering CTA end-card...');
+  console.log('Step 1b: Appending CTA end-card...');
 
-  // New path: cta/frame.png — with fallback to legacy cta-frame.png
-  const ctaFrameNewPath = path.join(postDir, 'cta', 'frame.png');
-  const ctaFrameLegacy = path.join(postDir, 'cta-frame.png');
-  const ctaFramePath = fs.existsSync(ctaFrameNewPath) ? ctaFrameNewPath :
-                        fs.existsSync(ctaFrameLegacy) ? ctaFrameLegacy : ctaFrameNewPath;
   const ctaClipPath = path.join(tmpDir, 'cta-clip.mp4');
+  let ctaReady = false;
 
-  // 1. Render the CTA PNG using render-cta-frame.mjs (skip if already exists)
-  if (!fs.existsSync(ctaFramePath)) {
-    const renderScript = path.join(path.dirname(new URL(import.meta.url).pathname), 'render-cta-frame.mjs');
-    const templateFlag = videoSpec.template ? `--template ${videoSpec.template}` : '';
+  // --- Priority 1: Custom CTA video from postgen.config.json → cta_video ---
+  const customCtaPath = config.cta_video || '';
+  const resolvedCustomCta = customCtaPath ? path.resolve(wsRoot || postDir, customCtaPath) : '';
+
+  if (resolvedCustomCta && fs.existsSync(resolvedCustomCta)) {
+    console.log(`  Using custom CTA video: ${resolvedCustomCta}`);
+    // Re-encode to match main video track (resolution, codec, framerate)
     try {
       execSync(
-        `node "${renderScript}" "${postDir}" --format ${format} ${templateFlag}`,
-        { stdio: 'inherit', timeout: 60_000 }
+        [
+          'ffmpeg -y',
+          `-i "${resolvedCustomCta}"`,
+          `-vf "scale=${vp.width}:${vp.height}:force_original_aspect_ratio=decrease,pad=${vp.width}:${vp.height}:(ow-iw)/2:(oh-ih)/2,setsar=1"`,
+          '-c:v libx264 -crf 18 -preset medium',
+          '-an', // strip audio from CTA — voiceover track handles audio
+          '-r 30 -pix_fmt yuv420p',
+          `"${ctaClipPath}"`,
+        ].join(' '),
+        { stdio: 'pipe', timeout: FFMPEG_TIMEOUT }
       );
+      const ctaDur = probeDuration(ctaClipPath);
+      console.log(`  Custom CTA video: ${ctaDur.toFixed(1)}s`);
+      ctaReady = true;
     } catch (err) {
-      console.warn(`  CTA rendering error: ${err.message}`);
+      console.warn(`  Custom CTA re-encode failed: ${err.message}`);
+      console.warn(`  Falling back to auto-generated CTA...`);
     }
-  } else {
-    console.log(`  CTA frame already exists: ${ctaFramePath}`);
+  } else if (customCtaPath) {
+    console.warn(`  Custom CTA video not found at "${resolvedCustomCta}" — falling back to auto-generated CTA.`);
   }
 
-  if (!fs.existsSync(ctaFramePath)) {
-    console.warn('  CTA frame not found — skipping end-card.');
-  } else {
-    // 2. Convert CTA PNG to a 5s video clip with a subtle Ken Burns zoom
-    execSync(
-      [
-        'ffmpeg -y',
-        '-loop 1',
-        `-i "${ctaFramePath}"`,
-        `-vf "scale=${Math.round(vp.width * 1.05)}:${Math.round(vp.height * 1.05)},zoompan=z='min(zoom+0.0003,1.05)':d=${CTA_DURATION * 30}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=${vp.width}x${vp.height}:fps=30,format=yuv420p"`,
-        `-t ${CTA_DURATION}`,
-        '-c:v libx264 -crf 18 -preset medium',
-        '-r 30 -pix_fmt yuv420p',
-        `"${ctaClipPath}"`,
-      ].join(' '),
-      { stdio: 'pipe', timeout: FFMPEG_TIMEOUT }
-    );
+  // --- Priority 2: Auto-generated CTA from PNG (existing behavior) ---
+  if (!ctaReady) {
+    const ctaFrameNewPath = path.join(postDir, 'cta', 'frame.png');
+    const ctaFrameLegacy = path.join(postDir, 'cta-frame.png');
+    const ctaFramePath = fs.existsSync(ctaFrameNewPath) ? ctaFrameNewPath :
+                          fs.existsSync(ctaFrameLegacy) ? ctaFrameLegacy : ctaFrameNewPath;
 
-    // 3. Append CTA clip to the main video track
+    // Render the CTA PNG using render-cta-frame.mjs (skip if already exists)
+    if (!fs.existsSync(ctaFramePath)) {
+      const renderScript = path.join(path.dirname(new URL(import.meta.url).pathname), 'render-cta-frame.mjs');
+      const templateFlag = videoSpec.template ? `--template ${videoSpec.template}` : '';
+      try {
+        execSync(
+          `node "${renderScript}" "${postDir}" --format ${format} ${templateFlag}`,
+          { stdio: 'inherit', timeout: 60_000 }
+        );
+      } catch (err) {
+        console.warn(`  CTA rendering error: ${err.message}`);
+      }
+    } else {
+      console.log(`  CTA frame already exists: ${ctaFramePath}`);
+    }
+
+    if (!fs.existsSync(ctaFramePath)) {
+      console.warn('  CTA frame not found — skipping end-card.');
+    } else {
+      // Convert CTA PNG to a 5s video clip with a subtle Ken Burns zoom
+      execSync(
+        [
+          'ffmpeg -y',
+          '-loop 1',
+          `-i "${ctaFramePath}"`,
+          `-vf "scale=${Math.round(vp.width * 1.05)}:${Math.round(vp.height * 1.05)},zoompan=z='min(zoom+0.0003,1.05)':d=${CTA_DURATION * 30}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=${vp.width}x${vp.height}:fps=30,format=yuv420p"`,
+          `-t ${CTA_DURATION}`,
+          '-c:v libx264 -crf 18 -preset medium',
+          '-r 30 -pix_fmt yuv420p',
+          `"${ctaClipPath}"`,
+        ].join(' '),
+        { stdio: 'pipe', timeout: FFMPEG_TIMEOUT }
+      );
+      ctaReady = true;
+    }
+  }
+
+  // --- Append CTA clip to the main video track ---
+  if (ctaReady) {
     const mergedPath = path.join(tmpDir, 'video-track-with-cta.mp4');
     const mergeListPath = path.join(tmpDir, 'merge-cta.txt');
     fs.writeFileSync(mergeListPath, `file '${videoTrackPath}'\nfile '${ctaClipPath}'`);
@@ -284,7 +322,8 @@ if (hasCta) {
 
     // Replace the video track with the merged version
     fs.renameSync(mergedPath, videoTrackPath);
-    console.log(`  CTA end-card appended (${CTA_DURATION}s). Video track now includes branded outro.`);
+    const ctaDur = probeDuration(ctaClipPath);
+    console.log(`  CTA end-card appended (${ctaDur.toFixed(1)}s). Video track now includes branded outro.`);
   }
 }
 
