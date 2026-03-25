@@ -39,6 +39,11 @@ const VIDEO_PROVIDERS = {
     envKeys: ['ELEVENLABS_API_KEY'],
     openclawKeys: ['ELEVENLABS_API_KEY'],
   },
+  'gemini-video': {
+    configKeys: ['gemini_api_key', 'google_genai_api_key'],
+    envKeys: ['GEMINI_API_KEY', 'GOOGLE_GENAI_API_KEY'],
+    openclawKeys: ['GEMINI_API_KEY', 'GOOGLE_GENAI_API_KEY'],
+  },
 };
 
 // ---------------------------------------------------------------------------

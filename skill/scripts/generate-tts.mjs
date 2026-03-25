@@ -298,21 +298,41 @@ console.log(`  Total text: ${narrations.reduce((sum, t) => sum + t.length, 0)} c
 // Word count check: advisory warnings for pacing (voiceover is always fully preserved, never cut off)
 if (isVideoFlow) {
   const WORDS_PER_SEC = 3;
-  const IDEAL_WORDS_PER_SCENE = 15;
+
+  // Determine clip duration from ai-video manifest or video.json provider
+  let clipDuration = 5; // fallback
+  const aiManifestPath = path.join(postDir, 'ai-video', 'manifest.json');
+  if (fs.existsSync(aiManifestPath)) {
+    const aiManifest = JSON.parse(fs.readFileSync(aiManifestPath, 'utf-8'));
+    if (aiManifest.provider === 'gemini') clipDuration = 8;
+    else if (aiManifest.provider === 'kling') clipDuration = 10;
+  } else {
+    // Estimate from video.json provider hint
+    const vp = videoSpec?.video_provider || '';
+    if (vp === 'gemini') clipDuration = 8;
+    else if (vp === 'kling') clipDuration = 10;
+  }
+
+  const idealWordsPerScene = Math.round(clipDuration * WORDS_PER_SEC);
   let totalWords = 0;
   narrations.forEach((text, i) => {
     if (!text) return;
     const words = text.split(/\s+/).filter(Boolean).length;
     totalWords += words;
-    if (words > 20) {
-      console.warn(`  ⚠ Scene ${i + 1}: ${words} words (ideal ~${IDEAL_WORDS_PER_SCENE} for 5s). May sound fast.`);
+    if (words > idealWordsPerScene * 1.3) {
+      console.warn(`  ⚠ Scene ${i + 1}: ${words} words (ideal ~${idealWordsPerScene} for ${clipDuration}s clip). May sound fast.`);
+    } else if (words < idealWordsPerScene * 0.5) {
+      console.warn(`  ⚠ Scene ${i + 1}: ${words} words (ideal ~${idealWordsPerScene} for ${clipDuration}s clip). May sound slow/draggy.`);
     }
   });
-  const targetDuration = narrations.length * 5;
+  const targetDuration = narrations.length * clipDuration;
   const estimatedSpeechDuration = totalWords / WORDS_PER_SEC;
+  console.log(`  Clip duration: ${clipDuration}s | Ideal: ~${idealWordsPerScene} words/scene, ~${narrations.length * idealWordsPerScene} total`);
   console.log(`  Word count: ${totalWords} words across ${narrations.filter(Boolean).length} scenes (~${estimatedSpeechDuration.toFixed(0)}s of speech for ${targetDuration}s of video)`);
-  if (estimatedSpeechDuration > targetDuration * 1.2) {
-    console.warn(`  ⚠ Voiceover may sound rushed — ${totalWords} words is a lot for ${targetDuration}s. Next time aim for ~${targetDuration * WORDS_PER_SEC} words total.`);
+  if (estimatedSpeechDuration > targetDuration * 1.15) {
+    console.warn(`  ⚠ Voiceover may sound rushed — aim for ~${targetDuration * WORDS_PER_SEC} words total.`);
+  } else if (estimatedSpeechDuration < targetDuration * 0.7) {
+    console.warn(`  ⚠ Voiceover may sound slow/draggy — only ${totalWords} words for ${targetDuration}s of video. Aim for ~${targetDuration * WORDS_PER_SEC} words total.`);
   }
 }
 console.log();

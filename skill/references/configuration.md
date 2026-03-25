@@ -28,7 +28,8 @@ Located at the root of the workspace path. Created by `scripts/setup.mjs`.
     "output_type": "both",
     "template": "bold"
   },
-  "tts_provider": "kling",
+  "video_provider": "gemini",
+  "tts_provider": "openai",
   "gemini_api_key": "optional-fallback-key",
   "openai_api_key": "optional-fallback-key",
   "kling_access_key": "optional-kling-access-key",
@@ -55,6 +56,7 @@ Located at the root of the workspace path. Created by `scripts/setup.mjs`.
 | `defaults.formats` | No | Array of output formats: `"instagram"` (4:5), `"tiktok"` (9:16). Legacy alias `"shorts"` also accepted. |
 | `defaults.output_type` | No | Default output type: `"image"` (PNG only), `"video"` (PNG + MP4), or `"both"` (default). Can be overridden per post in slides.json. |
 | `defaults.template` | No | Default template: `"bold"`, `"minimal"`, `"magazine"`, `"neon"`, `"stack"`, or `"clean"` |
+| `video_provider` | No | Preferred video provider: `"gemini"` (Veo 3.1, 8s clips) or `"kling"` (10s clips). Auto-detected if omitted (tries Gemini first). Can also be set per-post in video.json. |
 | `tts_provider` | No | Preferred TTS provider: `"openai"` or `"elevenlabs"`. Auto-detected if omitted (tries OpenAI first). |
 | `gemini_api_key` | No | Fallback API key for Google GenAI |
 | `openai_api_key` | No | Fallback API key for OpenAI (also used for OpenAI TTS) |
@@ -70,13 +72,23 @@ Located at the root of the workspace path. Created by `scripts/setup.mjs`.
 2. **Environment variables**: `GEMINI_API_KEY`, `GOOGLE_GENAI_API_KEY`, or `OPENAI_API_KEY`
 3. **postgen.config.json**: `gemini_api_key` or `openai_api_key` fields
 
-### Video & TTS Keys (order: config → env → OpenClaw)
+### Video Keys (order: config → env → OpenClaw)
 
-1. **postgen.config.json**: `kling_access_key` + `kling_secret_key`, `openai_api_key`, `elevenlabs_api_key`
-2. **Environment variables**: `KLING_ACCESS_KEY` + `KLING_SECRET_KEY`, `OPENAI_API_KEY`, `ELEVENLABS_API_KEY`
+**Gemini Veo** (uses same key as image generation — no extra credentials needed):
+1. **postgen.config.json**: `gemini_api_key` or `google_genai_api_key`
+2. **Environment variables**: `GEMINI_API_KEY`, `GOOGLE_GENAI_API_KEY`
+3. **OpenClaw config**: same env var names
+
+**Kling** (requires BOTH access key and secret key from the same tier):
+1. **postgen.config.json**: `kling_access_key` + `kling_secret_key`
+2. **Environment variables**: `KLING_ACCESS_KEY` + `KLING_SECRET_KEY`
+3. **OpenClaw config**: same env var names
+
+### TTS Keys (order: config → env → OpenClaw)
+
+1. **postgen.config.json**: `openai_api_key`, `elevenlabs_api_key`
+2. **Environment variables**: `OPENAI_API_KEY`, `ELEVENLABS_API_KEY`
 3. **OpenClaw config**: same env var names in `~/.openclaw/openclaw.json`
-
-Note: Kling requires BOTH access key and secret key from the same tier.
 
 ## Image Providers
 
@@ -146,7 +158,7 @@ Set `output_type` in `slides.json` per post, or set `defaults.output_type` in co
 │           ├── voiceover/              # TTS audio files (when voiceover enabled)
 │           │   └── slide-{N}.mp3 (or scene-{N}.mp3 for video.json)
 │           ├── voiceover.json          # TTS manifest with timing
-│           ├── ai-video/               # Kling AI video clips (from video.json scenes)
+│           ├── ai-video/               # AI video clips (Gemini Veo or Kling, from video.json scenes)
 │           │   └── scene-{N}.mp4
 │           ├── ai-video.json           # AI video manifest with scene metadata
 │           └── {format}/               # Only used for carousel flow (slides.json)

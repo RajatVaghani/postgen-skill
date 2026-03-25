@@ -601,7 +601,65 @@ try {
 // Summary
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Output Validation
+// ---------------------------------------------------------------------------
+
+if (!fs.existsSync(outputPath)) {
+  console.error(`\nFATAL: Output file was not created: ${outputPath}`);
+  process.exit(1);
+}
+
 const outputSize = fs.statSync(outputPath).size;
+
+if (outputSize === 0) {
+  console.error(`\nFATAL: Output file is 0 bytes: ${outputPath}`);
+  fs.unlinkSync(outputPath); // remove broken file
+  process.exit(1);
+}
+
+if (outputSize < 10_000) { // <10KB is suspiciously small
+  console.error(`\nFATAL: Output file is suspiciously small (${outputSize} bytes): ${outputPath}`);
+  process.exit(1);
+}
+
+// Verify video has expected tracks using ffprobe
+try {
+  const probeStreams = execSync(
+    `ffprobe -v error -show_entries stream=codec_type -of csv=p=0 "${outputPath}"`,
+    { encoding: 'utf-8', timeout: 10_000 }
+  ).trim();
+
+  const streams = probeStreams.split('\n').map(s => s.trim());
+  const hasVideoStream = streams.includes('video');
+  const hasAudioStream = streams.includes('audio');
+
+  if (!hasVideoStream) {
+    console.error(`\nFATAL: Output video has no video stream — compositing may have failed.`);
+    process.exit(1);
+  }
+
+  if (hasAudioTrack && !hasAudioStream) {
+    console.warn(`\n  ⚠ Output video has no audio stream despite voiceover being enabled.`);
+  }
+
+  // Verify duration is reasonable (at least 5s, no more than 5 minutes)
+  const outputDuration = probeDuration(outputPath);
+  if (outputDuration < 5) {
+    console.error(`\nFATAL: Output video is only ${outputDuration.toFixed(1)}s — expected at least 5s.`);
+    process.exit(1);
+  }
+  if (outputDuration > 300) {
+    console.warn(`\n  ⚠ Output video is ${outputDuration.toFixed(0)}s — unusually long for a short-form video.`);
+  }
+
+  console.log('\n  ✓ Output validation passed');
+  console.log(`    Streams: ${streams.join(', ')}`);
+  console.log(`    Duration: ${outputDuration.toFixed(1)}s`);
+} catch (err) {
+  console.warn(`\n  ⚠ Could not validate output with ffprobe: ${err.message}`);
+}
+
 console.log(`\nComposite video complete!`);
 console.log(`  Output: ${outputPath}`);
 console.log(`  Size: ${(outputSize / 1024 / 1024).toFixed(1)}MB`);

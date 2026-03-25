@@ -20,7 +20,7 @@ import fs from 'fs';
 import path from 'path';
 import { execSync } from 'child_process';
 import { findWorkspaceRoot, loadConfig } from './workspace.mjs';
-import { resolveApiKey } from './resolve-key.mjs';
+import { resolveApiKey, resolveVideoKey } from './resolve-key.mjs';
 
 const startDir = path.resolve(process.argv[2] || '.');
 const issues = [];
@@ -83,6 +83,33 @@ if (!provider) {
 }
 
 // ---------------------------------------------------------------------------
+// 3b. Video provider credentials
+// ---------------------------------------------------------------------------
+
+const geminiVideoCreds = resolveVideoKey('gemini-video', config);
+const klingCreds = resolveVideoKey('kling', config);
+const configVideoProvider = config.video_provider || '';
+
+if (configVideoProvider === 'gemini' && !geminiVideoCreds) {
+  issue('video_provider is "gemini" but no Gemini API key found');
+} else if (configVideoProvider === 'kling' && !klingCreds) {
+  issue('video_provider is "kling" but no Kling credentials found');
+} else if (!geminiVideoCreds && !klingCreds) {
+  warn('No video provider credentials found — AI video generation will not work. Add GEMINI_API_KEY or KLING_ACCESS_KEY + KLING_SECRET_KEY');
+}
+
+// ---------------------------------------------------------------------------
+// 3c. TTS provider credentials
+// ---------------------------------------------------------------------------
+
+const openaiTtsCreds = resolveVideoKey('openai-tts', config);
+const elevenlabsCreds = resolveVideoKey('elevenlabs', config);
+
+if (!openaiTtsCreds && !elevenlabsCreds) {
+  warn('No TTS credentials found — voiceover will not work. Add OPENAI_API_KEY or ELEVENLABS_API_KEY');
+}
+
+// ---------------------------------------------------------------------------
 // 4. Workspace structure
 // ---------------------------------------------------------------------------
 
@@ -140,7 +167,18 @@ if (config.defaults) {
 function report() {
   console.log('\n=== PostGen Config Validation ===\n');
   console.log(`Workspace: ${wsRoot || 'NOT FOUND'}`);
-  console.log(`Provider: ${config?.image_provider || 'NOT SET'}\n`);
+  console.log(`Image provider: ${config?.image_provider || 'NOT SET'}`);
+
+  const videoProv = [];
+  if (geminiVideoCreds) videoProv.push(`gemini (via ${geminiVideoCreds.source})`);
+  if (klingCreds) videoProv.push(`kling (via ${klingCreds.source})`);
+  console.log(`Video providers: ${videoProv.length > 0 ? videoProv.join(', ') : 'NONE'}`);
+
+  const ttsProv = [];
+  if (openaiTtsCreds) ttsProv.push(`openai (via ${openaiTtsCreds.source})`);
+  if (elevenlabsCreds) ttsProv.push(`elevenlabs (via ${elevenlabsCreds.source})`);
+  console.log(`TTS providers: ${ttsProv.length > 0 ? ttsProv.join(', ') : 'NONE'}`);
+  console.log();
 
   if (issues.length === 0 && warnings.length === 0) {
     console.log('All checks passed. Ready to generate!\n');

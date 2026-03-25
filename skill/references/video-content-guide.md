@@ -97,9 +97,29 @@ The first word of voiceover should be the start of the hook — no warm-up.
 
 ---
 
+## Visual Style Consistency
+
+AI video generators create each clip independently. Without explicit style direction, clips will have different actors, color grades, lighting, and camera styles — making the final video feel disjointed.
+
+**Use the `visual_style` field in video.json** to define a consistent look across all scenes. This style description gets automatically prepended to every scene prompt, ensuring coherent visuals throughout the video.
+
+A good `visual_style` should define:
+- **Color grading/palette**: "warm amber tones", "cool blue-teal color grade", "high contrast cinematic"
+- **Camera style**: "handheld documentary feel", "smooth gimbal tracking", "static locked-off shots"
+- **Lighting mood**: "soft diffused natural light", "moody dramatic side-lighting", "golden hour warmth"
+- **Subject consistency**: If a person appears across scenes, describe them once here: "young South Asian man in his late 20s with short dark hair and trimmed beard, wearing a fitted navy henley"
+- **Overall aesthetic**: "clean modern minimalist", "gritty urban documentary", "polished commercial look"
+
+**Example:**
+```json
+"visual_style": "Cinematic commercial look. Warm golden color grade with soft shadows. A confident South Asian man in his late 20s with short styled hair, wearing a casual fitted grey t-shirt. Smooth slow camera movements, shallow depth of field, natural daylight."
+```
+
+This ensures the same person, same lighting, and same color palette across all 5 scenes.
+
 ## Scene Prompt Rules (AI Video Generation)
 
-Scene prompts in `video.json` describe what the AI video generator renders visually. These are NOT voiceover scripts — they're visual directions.
+Scene prompts in `video.json` describe what the AI video generator renders visually. These are NOT voiceover scripts — they're visual directions. The `visual_style` is automatically prepended to each prompt, so scene prompts should focus on what's UNIQUE to that scene (the action, location, camera angle) — not repeat the overall style.
 
 **CRITICAL: AI video generators CANNOT render text accurately.** Never include brand names, logos, URLs, readable text, or specific words in scene prompts. The AI will mangle them into gibberish.
 
@@ -131,11 +151,17 @@ Voiceover text is what the narrator says during each scene. This IS where brand 
 
 - **Brand mentions are welcome here** — voiceover is text-to-speech audio, not AI-generated video, so names and words will be pronounced correctly
 - Write in natural speech patterns, not bullet points
-- **WORD COUNT MATTERS:** Natural speech pace is ~3 words/second. For a 5s scene, aim for **12-18 words** (2 short sentences). If you write significantly more, the voiceover will be time-stretched to fit the video and may sound noticeably fast.
+- **WORD COUNT MATTERS:** Natural speech pace is ~3 words/second. Match your word count to the clip duration of your chosen provider:
+  - **Kling** (10s clips): aim for **25-30 words per scene** (3-4 sentences)
+  - **Gemini Veo** (8s clips): aim for **20-24 words per scene** (2-3 sentences)
+  - If you write too few words, the voiceover gets slowed down and sounds unnaturally draggy. Too many words = rushed speech.
 - Vary sentence length — mix short punchy lines with slightly longer ones
 - End scene voiceover on transitions: "But here's the thing..." / "And that's where it gets interesting..." / "So what can you do about it?"
 - The final content scene (before CTA) should have a clear conclusion or call to awareness
-- **Total voiceover across all 5 scenes should be 60-90 words** (for 25s of video). Going over 90 words will result in noticeably fast speech.
+- **Total voiceover word targets by provider:**
+  - **Kling** (5 × 10s = 50s video): aim for **125-150 words total**
+  - **Gemini Veo** (5 × 8s = 40s video): aim for **100-120 words total**
+  - Too few words = speech gets slowed down and sounds draggy. Too many = rushed. Match the provider's duration.
 
 ---
 
@@ -146,8 +172,9 @@ Before finalizing `video.json`, verify:
 1. **Hook test:** Read the first scene's voiceover_text out loud. Would YOU stop scrolling?
 2. **Emotional trigger:** Is there a clear emotion driving the video? (curiosity, fear, surprise, anger, relief)
 3. **Value delivery:** Does the viewer learn something, realize something, or feel something by the end?
-4. **Scene variety:** Are the visual prompts varied? (not all "person at computer" — mix close-ups, wide shots, abstract, real-world)
-5. **Flow:** Do the scenes progress logically? Hook → develop → evidence/story → conclusion → CTA
-6. **Brand safety:** Zero text/logos/brand names in scene prompts. Brand mentions only in voiceover_text and CTA.
-7. **Duration math:** 5 scenes × 5s = 25s + 5s CTA = 30s total. Don't exceed this.
-8. **Voiceover pacing:** Aim for 12-18 words per scene (5 seconds of natural speech at ~3 words/sec). Total across all scenes should be 60-90 words. Over 20 words in a scene = noticeably fast speech. Under 10 = awkward silence.
+4. **Visual style set?** Does video.json have a `visual_style` field defining color grade, lighting, subject appearance, and camera style? Without this, clips will look disjointed.
+5. **Scene variety:** Are the scene prompts varied in LOCATION and ACTION? (not all "person at desk" — mix close-ups, wide shots, different settings). The `visual_style` handles consistency; scene prompts handle variety.
+6. **Flow:** Do the scenes progress logically? Hook → develop → evidence/story → conclusion → CTA
+7. **Brand safety:** Zero text/logos/brand names in scene prompts. Brand mentions only in voiceover_text and CTA.
+7. **Scene count:** 5 scenes + CTA end-card. Clip duration is fixed per provider (8s Gemini, 10s Kling).
+8. **Voiceover pacing:** Match word count to clip duration (~3 words/sec). Kling (10s): ~25-30 words/scene, ~125-150 total. Gemini Veo (8s): ~20-24 words/scene, ~100-120 total. Too few = draggy slow speech. Too many = rushed.

@@ -10,7 +10,7 @@
  * │  Per-format: instagram (4:5), tiktok (9:16)                    │
  * ├─────────────────────────────────────────────────────────────────┤
  * │  FLOW B: AI Video (video.json)                                 │
- * │  → Kling text-to-video → TTS voiceover → composite (w/ CTA)   │
+ * │  → AI text-to-video (Gemini Veo or Kling) → TTS → composite   │
  * │  ONE video output (9:16). Repost to TikTok/Reels/Shorts.      │
  * │  No slides.json needed. No backgrounds. No carousel.           │
  * └─────────────────────────────────────────────────────────────────┘
@@ -36,6 +36,9 @@ import { fileURLToPath } from 'url';
 import { findWorkspaceRoot, loadConfig } from './workspace.mjs';
 import { loadAndNormalizeSlides } from './normalize-slides.mjs';
 import { resolveApiKey, resolveVideoKey } from './resolve-key.mjs';
+import { validateVideoSpec } from './validate-video-json.mjs';
+import { validateAiVideoManifest, validateVoiceoverManifest } from './validate-manifests.mjs';
+import { acquireLock, releaseLock } from './pipeline-lock.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -115,6 +118,28 @@ if (configIssues.length > 0) {
 }
 
 // ---------------------------------------------------------------------------
+// Lock file: prevent concurrent pipeline runs
+// ---------------------------------------------------------------------------
+
+let lockPath;
+try {
+  lockPath = acquireLock(postDir);
+} catch (err) {
+  console.error(`FATAL: ${err.message}`);
+  process.exit(1);
+}
+
+// Ensure lock is released on exit (normal or crash)
+process.on('exit', () => releaseLock(lockPath));
+process.on('SIGINT', () => { releaseLock(lockPath); process.exit(130); });
+process.on('SIGTERM', () => { releaseLock(lockPath); process.exit(143); });
+process.on('uncaughtException', (err) => {
+  releaseLock(lockPath);
+  console.error('Uncaught exception:', err);
+  process.exit(1);
+});
+
+// ---------------------------------------------------------------------------
 // Pipeline runner
 // ---------------------------------------------------------------------------
 
@@ -152,12 +177,35 @@ function run(script, extraArgs = '', allowFailure = false) {
 if (flowType === 'video') {
   const videoSpec = JSON.parse(fs.readFileSync(path.join(postDir, 'video.json'), 'utf-8'));
 
-  // Resolve Kling credentials
+  // --- Schema validation (before any API calls) ---
+  const { valid: schemaValid, errors: schemaErrors, warnings: schemaWarnings } = validateVideoSpec(videoSpec);
+  if (schemaWarnings.length > 0) {
+    console.log('  VIDEO.JSON WARNINGS:');
+    for (const w of schemaWarnings) console.log(`    ⚠ ${w}`);
+    console.log();
+  }
+  if (!schemaValid) {
+    console.error('  VIDEO.JSON VALIDATION FAILED:');
+    for (const e of schemaErrors) console.error(`    ✗ ${e}`);
+    console.error('\n  Fix the errors above in video.json before running the pipeline.');
+    releaseLock(lockPath);
+    process.exit(1);
+  }
+
+  // Resolve video provider: video.json → config → auto-detect (Gemini first, then Kling)
+  const explicitProvider = videoSpec.video_provider || config.video_provider || '';
+  const geminiCreds = resolveVideoKey('gemini-video', config);
   const klingCreds = resolveVideoKey('kling', config);
-  if (!klingCreds) {
-    console.error('FATAL: Kling credentials not found for AI video generation.');
-    console.error('  Set kling_access_key + kling_secret_key in postgen.config.json,');
-    console.error('  or KLING_ACCESS_KEY + KLING_SECRET_KEY env vars.');
+
+  let videoProvider;
+  if (explicitProvider === 'gemini' && geminiCreds) videoProvider = 'gemini';
+  else if (explicitProvider === 'kling' && klingCreds) videoProvider = 'kling';
+  else if (!explicitProvider && geminiCreds) videoProvider = 'gemini';
+  else if (!explicitProvider && klingCreds) videoProvider = 'kling';
+
+  if (!videoProvider) {
+    console.error('FATAL: No video provider credentials found.');
+    console.error('  Set GEMINI_API_KEY (for Gemini Veo) or KLING_ACCESS_KEY + KLING_SECRET_KEY (for Kling).');
     process.exit(1);
   }
 
@@ -168,16 +216,16 @@ if (flowType === 'video') {
 
   // Print plan
   const sceneCount = videoSpec.scenes?.length || 0;
-  const totalDur = videoSpec.scenes?.reduce((s, sc) => s + Number(sc.duration || 5), 0) || 0;
+  const clipDur = videoProvider === 'gemini' ? 8 : 10;
+  const estDuration = sceneCount * clipDur;
   const hasCta = !!videoSpec.cta;
 
   console.log('Flow: AI VIDEO (video.json)');
-  console.log(`  Scenes: ${sceneCount} (${totalDur}s AI video${hasCta ? ' + 5s CTA' : ''})`);
-  console.log(`  Model: ${videoSpec.model || 'kling-v3'}`);
+  console.log(`  Scenes: ${sceneCount} (~${estDuration}s AI video${hasCta ? ' + 5s CTA' : ''})`);
+  console.log(`  Video provider: ${videoProvider}${videoProvider === 'gemini' ? ' (Veo 3.1)' : ' (Kling)'}`);
   console.log(`  Aspect ratio: ${videoSpec.aspect_ratio || '9:16'}`);
   console.log(`  Voiceover: ${hasVoiceoverEnabled && hasTTS ? (vTtsProvider || 'auto-detect') : 'off'}`);
   console.log(`  CTA end-card: ${hasCta ? `"${videoSpec.cta.title}"` : 'none'}`);
-  console.log(`  Kling: credentials found`);
   console.log(`  ffmpeg: ${hasFFmpeg ? 'available' : 'NOT FOUND (compositing will fail)'}`);
   console.log(`  Playwright: ${hasChromium ? 'available' : 'NOT FOUND (CTA rendering will fail)'}`);
   console.log(`  Step timeout: ${stepTimeout / 1000}s`);
@@ -186,19 +234,45 @@ if (flowType === 'video') {
   console.log();
 
   if (dryRun) {
-    console.log('--- Dry run: video.json looks valid ---');
-    console.log(`  ${sceneCount} scenes, ${totalDur}s total${hasCta ? ' + 5s CTA' : ''}`);
+    console.log('--- Dry run: video.json schema validation passed ---');
+    console.log(`  ${sceneCount} scenes, ~${estDuration}s total${hasCta ? ' + 5s CTA' : ''}`);
     console.log('\n=== Dry run complete ===');
+    releaseLock(lockPath);
     process.exit(0);
   }
 
-  // Step 1: Generate AI video clips (Kling text-to-video)
-  run('generate-ai-video.mjs');
+  // Step 1: Generate AI video clips
+  run('generate-ai-video.mjs', `--provider ${videoProvider}`);
+
+  // Validate: ai-video manifest must exist and have clips
+  const aiResult = validateAiVideoManifest(postDir);
+  if (aiResult.warnings.length > 0) {
+    for (const w of aiResult.warnings) console.log(`  ⚠ ${w}`);
+  }
+  if (!aiResult.valid) {
+    console.error('\n  AI VIDEO MANIFEST VALIDATION FAILED:');
+    for (const e of aiResult.errors) console.error(`    ✗ ${e}`);
+    console.error('  Cannot proceed to compositing without valid clips.');
+    releaseLock(lockPath);
+    process.exit(1);
+  }
 
   // Step 2: Generate TTS voiceover
   if (hasVoiceoverEnabled && hasTTS) {
     const ttsArgs = vTtsProvider ? `--provider ${vTtsProvider}` : '';
     run('generate-tts.mjs', ttsArgs);
+
+    // Validate: voiceover manifest must exist and have segments
+    const voResult = validateVoiceoverManifest(postDir);
+    if (voResult.warnings.length > 0) {
+      for (const w of voResult.warnings) console.log(`  ⚠ ${w}`);
+    }
+    if (!voResult.valid) {
+      console.error('\n  VOICEOVER MANIFEST VALIDATION FAILED:');
+      for (const e of voResult.errors) console.error(`    ✗ ${e}`);
+      console.error('  Continuing without voiceover...');
+      // Don't exit — video without voiceover is still usable
+    }
   }
 
   // Step 3: Composite — stitches AI clips + CTA end-card + voiceover + subtitles
@@ -213,9 +287,8 @@ if (flowType === 'video') {
   const totalElapsed = ((Date.now() - pipelineStart) / 1000).toFixed(1);
   console.log(`\n=== Pipeline complete in ${totalElapsed}s ===`);
   console.log(`Output: ${postDir}`);
-  console.log(`Type: AI video (text-to-video)`);
+  console.log(`Type: AI video (${videoProvider})`);
 
-  // Find the composited video — video flow outputs to {postDir}/final/
   const videoPath = path.join(postDir, 'final', 'postgen-video.mp4');
   if (fs.existsSync(videoPath)) {
     const sizeMB = (fs.statSync(videoPath).size / 1024 / 1024).toFixed(1);
@@ -229,6 +302,7 @@ if (flowType === 'video') {
     console.log(`  AI clips: generated`);
   }
 
+  releaseLock(lockPath);
   process.exit(0);
 }
 
@@ -266,11 +340,12 @@ if ((outputType === 'video' || outputType === 'both') && !skipVideo && !enableVo
   if (hasTTS) enableVoiceover = true;
 }
 
-// Check Kling credentials for AI video
+// Check video provider credentials for AI video
 if (enableAiVideo) {
+  const geminiCreds = resolveVideoKey('gemini-video', config);
   const klingCreds = resolveVideoKey('kling', config);
-  if (!klingCreds) {
-    console.warn('  [!] AI video requested but no Kling credentials found — skipping AI video');
+  if (!geminiCreds && !klingCreds) {
+    console.warn('  [!] AI video requested but no video provider credentials found — skipping AI video');
     enableAiVideo = false;
   }
 }
@@ -281,7 +356,7 @@ console.log(`  Post directory: ${postDir}`);
 console.log(`  Formats: ${formats.join(', ')}`);
 console.log(`  Output type: ${skipVideo ? 'image only' : 'image + video'}`);
 console.log(`  Image provider: ${provider} (key via ${resolved?.source || 'MISSING'})`);
-console.log(`  AI video (Kling): ${enableAiVideo ? 'enabled' : 'off'}`);
+console.log(`  AI video: ${enableAiVideo ? 'enabled' : 'off'}`);
 console.log(`  Voiceover (TTS): ${enableVoiceover ? (ttsProvider || 'auto-detect') : 'off'}`);
 console.log(`  ffmpeg: ${hasFFmpeg ? 'available' : 'NOT FOUND (compression/video will fail)'}`);
 console.log(`  Playwright: ${hasChromium ? 'available' : 'NOT FOUND (rendering will fail)'}`);
