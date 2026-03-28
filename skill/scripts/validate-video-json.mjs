@@ -17,7 +17,7 @@ import path from 'path';
 
 const VALID_PROVIDERS = ['gemini', 'kling'];
 const VALID_ASPECT_RATIOS = ['9:16', '16:9', '1:1'];
-const VALID_TTS_PROVIDERS = ['openai', 'elevenlabs'];
+const VALID_TTS_PROVIDERS = ['openai', 'elevenlabs', 'gemini'];
 const VALID_MODES = ['std', 'pro'];
 
 const WORDS_PER_SEC = 3;

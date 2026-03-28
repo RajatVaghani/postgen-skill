@@ -3,7 +3,7 @@
  * PostGen – Generate voiceover audio from slide/scene text.
  *
  * Usage:
- *   node generate-tts.mjs <post-dir> [--provider openai|elevenlabs]
+ *   node generate-tts.mjs <post-dir> [--provider openai|elevenlabs|gemini]
  *                                     [--voice <voice-id>]
  *                                     [--language en|zh|...]
  *                                     [--speed 1.0]
@@ -14,15 +14,17 @@
  *   - Carousel flow (slides.json): reads slides → narration text,
  *     outputs slide-N.mp3 files, manifest at voiceover/manifest.json
  *
- * Supports two TTS providers:
+ * Supports three TTS providers:
  *   - openai     — OpenAI TTS (gpt-4o-mini-tts) — default
  *   - elevenlabs — ElevenLabs TTS (premium voice quality)
+ *   - gemini     — Gemini Live API (gemini-3.1-flash-live-preview, high-quality voices)
  */
 import fs from 'fs';
 import path from 'path';
 import https from 'https';
+import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
-import { findWorkspaceRoot, loadConfig } from './workspace.mjs';
+import { findWorkspaceRoot, loadConfig, workspaceRequire } from './workspace.mjs';
 import { loadAndNormalizeSlides } from './normalize-slides.mjs';
 import { resolveVideoKey } from './resolve-key.mjs';
 
@@ -67,12 +69,13 @@ function detectProvider() {
   // Check config for tts_provider preference
   if (config.tts_provider) return config.tts_provider;
 
-  // Try each provider in order: openai → elevenlabs
+  // Try each provider in order: openai → elevenlabs → gemini
   if (resolveVideoKey('openai-tts', config)) return 'openai';
   if (resolveVideoKey('elevenlabs', config)) return 'elevenlabs';
+  if (resolveVideoKey('gemini-tts', config)) return 'gemini';
 
   console.error('FATAL: No TTS provider credentials found.');
-  console.error('  Configure one of: openai_api_key or elevenlabs_api_key');
+  console.error('  Configure one of: openai_api_key, elevenlabs_api_key, or gemini_api_key');
   process.exit(1);
 }
 
@@ -83,6 +86,7 @@ function detectProvider() {
 const DEFAULT_VOICES = {
   openai: 'nova',                    // OpenAI natural female voice
   elevenlabs: 'EXAVITQu4vr4xnSDxMaL', // ElevenLabs "Bella" voice
+  gemini: 'Zephyr',                  // Gemini Live "Zephyr" voice
 };
 
 // ---------------------------------------------------------------------------
@@ -257,6 +261,137 @@ async function generateElevenLabsTTS(texts, outputDir, prefix) {
 }
 
 // ---------------------------------------------------------------------------
+// Gemini Live API TTS (gemini-3.1-flash-live-preview)
+// ---------------------------------------------------------------------------
+
+const GEMINI_LIVE_MODEL = 'gemini-3.1-flash-live-preview';
+const GEMINI_PCM_SAMPLE_RATE = 24000;
+
+async function generateGeminiTTS(texts, outputDir, prefix) {
+  const creds = resolveVideoKey('gemini-tts', config);
+  if (!creds) throw new Error('Gemini API key not found');
+
+  try {
+    execSync('ffmpeg -version', { stdio: 'pipe' });
+  } catch {
+    throw new Error('ffmpeg is required for Gemini TTS (converts PCM audio to MP3)');
+  }
+
+  const wsRequire = workspaceRequire(postDir);
+  const { GoogleGenAI, Modality } = wsRequire('@google/genai');
+
+  const ai = new GoogleGenAI({ apiKey: creds.key });
+  const voice = voiceId || DEFAULT_VOICES.gemini;
+  const results = [];
+
+  for (let i = 0; i < texts.length; i++) {
+    const text = texts[i];
+    if (!text) {
+      results.push(null);
+      continue;
+    }
+
+    console.log(`  [${i + 1}/${texts.length}] Generating TTS for ${prefix} ${i + 1} (${text.length} chars)...`);
+
+    const pcmBuffer = await geminiLiveTTS(ai, text, voice);
+
+    const pcmPath = path.join(outputDir, `_${prefix}-${i + 1}.pcm`);
+    const mp3Path = path.join(outputDir, `${prefix}-${i + 1}.mp3`);
+    fs.writeFileSync(pcmPath, pcmBuffer);
+
+    try {
+      execSync(
+        `ffmpeg -y -f s16le -ar ${GEMINI_PCM_SAMPLE_RATE} -ac 1 -i "${pcmPath}" -b:a 128k "${mp3Path}"`,
+        { stdio: 'pipe' },
+      );
+    } finally {
+      try { fs.unlinkSync(pcmPath); } catch {}
+    }
+
+    const mp3Size = fs.statSync(mp3Path).size;
+    const estimatedDuration = (mp3Size / 16_000).toFixed(1);
+    console.log(`    Saved: ${mp3Path} (~${estimatedDuration}s)`);
+
+    results.push({
+      segment: i + 1,
+      file: `${prefix}-${i + 1}.mp3`,
+      duration: parseFloat(estimatedDuration),
+      provider: 'gemini',
+    });
+  }
+
+  return results;
+}
+
+async function geminiLiveTTS(ai, text, voice) {
+  const pcmChunks = [];
+  let resolveDone, rejectDone;
+  const donePromise = new Promise((resolve, reject) => {
+    resolveDone = resolve;
+    rejectDone = reject;
+  });
+
+  const session = await ai.live.connect({
+    model: GEMINI_LIVE_MODEL,
+    config: {
+      responseModalities: [Modality.AUDIO],
+      systemInstruction:
+        'You are a professional voiceover narrator. Read the user\'s text aloud exactly as written, word for word. ' +
+        'Use a natural, engaging narration tone appropriate for social media video content. ' +
+        'Do not add any commentary, greetings, or extra words.',
+      speechConfig: {
+        voiceConfig: {
+          prebuiltVoiceConfig: { voiceName: voice },
+        },
+      },
+    },
+    callbacks: {
+      onmessage(message) {
+        const content = message.serverContent;
+        if (content?.modelTurn?.parts) {
+          for (const part of content.modelTurn.parts) {
+            if (part.inlineData) {
+              pcmChunks.push(Buffer.from(part.inlineData.data, 'base64'));
+            }
+          }
+        }
+        if (content?.turnComplete) {
+          resolveDone();
+        }
+      },
+      onerror(e) {
+        rejectDone(new Error(`Gemini Live API error: ${e.message}`));
+      },
+      onclose(e) {
+        if (pcmChunks.length === 0) {
+          rejectDone(new Error(`Gemini Live session closed before audio received: ${e?.reason || 'unknown'}`));
+        }
+      },
+    },
+  });
+
+  session.sendRealtimeInput({ text });
+
+  const timeout = setTimeout(() => {
+    try { session.close(); } catch {}
+    rejectDone(new Error('Gemini TTS timeout (90s)'));
+  }, 90_000);
+
+  try {
+    await donePromise;
+  } finally {
+    clearTimeout(timeout);
+    try { session.close(); } catch {}
+  }
+
+  if (pcmChunks.length === 0) {
+    throw new Error('Gemini Live API returned no audio data');
+  }
+
+  return Buffer.concat(pcmChunks);
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
@@ -350,8 +485,10 @@ try {
     results = await generateOpenAITTS(narrations, voiceoverDir, segmentPrefix);
   } else if (activeProvider === 'elevenlabs') {
     results = await generateElevenLabsTTS(narrations, voiceoverDir, segmentPrefix);
+  } else if (activeProvider === 'gemini') {
+    results = await generateGeminiTTS(narrations, voiceoverDir, segmentPrefix);
   } else {
-    console.error(`Unknown TTS provider: ${activeProvider}. Supported: openai, elevenlabs`);
+    console.error(`Unknown TTS provider: ${activeProvider}. Supported: openai, elevenlabs, gemini`);
     process.exit(1);
   }
 } catch (err) {

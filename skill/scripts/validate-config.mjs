@@ -104,9 +104,10 @@ if (configVideoProvider === 'gemini' && !geminiVideoCreds) {
 
 const openaiTtsCreds = resolveVideoKey('openai-tts', config);
 const elevenlabsCreds = resolveVideoKey('elevenlabs', config);
+const geminiTtsCreds = resolveVideoKey('gemini-tts', config);
 
-if (!openaiTtsCreds && !elevenlabsCreds) {
-  warn('No TTS credentials found — voiceover will not work. Add OPENAI_API_KEY or ELEVENLABS_API_KEY');
+if (!openaiTtsCreds && !elevenlabsCreds && !geminiTtsCreds) {
+  warn('No TTS credentials found — voiceover will not work. Add OPENAI_API_KEY, ELEVENLABS_API_KEY, or GEMINI_API_KEY');
 }
 
 // ---------------------------------------------------------------------------
@@ -177,6 +178,7 @@ function report() {
   const ttsProv = [];
   if (openaiTtsCreds) ttsProv.push(`openai (via ${openaiTtsCreds.source})`);
   if (elevenlabsCreds) ttsProv.push(`elevenlabs (via ${elevenlabsCreds.source})`);
+  if (geminiTtsCreds) ttsProv.push(`gemini (via ${geminiTtsCreds.source})`);
   console.log(`TTS providers: ${ttsProv.length > 0 ? ttsProv.join(', ') : 'NONE'}`);
   console.log();
 

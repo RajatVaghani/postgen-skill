@@ -212,7 +212,7 @@ For swipeable image carousels or basic video slideshows, compose `slides.json`. 
 - `formats`: Array of format names to generate. `"instagram"` (1080x1350, 4:5) and/or `"tiktok"` (1080x1920, 9:16). If omitted, falls back to `defaults.formats` in config.
 - `ai_video`: `true` to enable AI video generation for the carousel. Only set when the user explicitly wants AI-animated video.
 - `voiceover`: `true` to enable TTS voiceover narration. Auto-enabled for video output when TTS credentials are available.
-- `tts_provider`: Override TTS provider (`"openai"` or `"elevenlabs"`). Omit to auto-detect from available credentials.
+- `tts_provider`: Override TTS provider (`"openai"`, `"elevenlabs"`, or `"gemini"`). Omit to auto-detect from available credentials.
 
 If the user chose to provide their own content (Question 3), use their text for slide titles and bodies. Otherwise, generate engaging content based on their topic.
 
@@ -274,7 +274,7 @@ For AI-generated video posts with scene descriptions, voiceover narration, and s
 - `mode`: `"std"` (standard quality) or `"pro"` (higher quality, longer processing — Kling only)
 - `template`: Template for the CTA end-card: `"bold"`, `"neon"`, `"minimal"`, `"clean"`, `"stack"`, or `"magazine"`. Uses the same branded slide renderer as carousels.
 - `voiceover`: `true` to enable TTS narration (reads `voiceover_text` from each scene)
-- `tts_provider`: `"openai"` or `"elevenlabs"`. Omit to auto-detect from credentials.
+- `tts_provider`: `"openai"`, `"elevenlabs"`, or `"gemini"`. Omit to auto-detect from credentials.
 - `visual_style`: **Strongly recommended.** A description of the consistent visual look applied to ALL scene prompts — color grading, lighting, camera style, and subject appearance (e.g. "Cinematic warm golden color grade, soft shadows. A confident man in his late 20s with short dark hair wearing a grey t-shirt. Smooth slow camera movements, shallow depth of field."). This gets automatically prepended to every scene prompt to ensure visual coherence across clips. Without this, each clip will have different actors, lighting, and styles. See [video-content-guide.md](references/video-content-guide.md) for detailed guidance.
 - `negative_prompt`: Text to exclude from generation (e.g. "blurry, watermark, low quality")
 - `scenes`: Array of scene objects (up to 5 scenes), each with:
@@ -387,7 +387,7 @@ Runs: backgrounds → compress → build HTML → render PNG → (optional: basi
 Takes **2-5 minutes** for image-only, **5-15 minutes** if AI video is enabled.
 
 Settings are read from `slides.json`: `output_type`, `formats`, `ai_video`, `voiceover`, `tts_provider`.
-Override flags: `--skip-video`, `--skip-compress`, `--ai-video`, `--voiceover`, `--tts-provider openai|elevenlabs`.
+Override flags: `--skip-video`, `--skip-compress`, `--ai-video`, `--voiceover`, `--tts-provider openai|elevenlabs|gemini`.
 
 #### Flow B: AI Video Pipeline (video.json)
 
@@ -431,7 +431,7 @@ If the pipeline fails, look at the output to identify the failure point. The pip
 | `render-slides.mjs` fails | Playwright/Chromium issue | Run `npx playwright install --with-deps chromium` in workspace |
 | `generate-video.mjs` fails | ffmpeg missing or broken | Install ffmpeg, or use `--skip-video` |
 | `compress-backgrounds.mjs` fails | ffmpeg missing | Install ffmpeg, or use `--skip-compress` |
-| `generate-tts.mjs` fails | Missing TTS credentials | Add openai_api_key or elevenlabs_api_key to config or env |
+| `generate-tts.mjs` fails | Missing TTS credentials | Add openai_api_key, elevenlabs_api_key, or gemini_api_key to config or env |
 | `generate-ai-video.mjs` fails on video.json (Kling) | Kling API error, rate limit, or invalid scene prompt | Check Kling credentials and quota, verify scene prompts are detailed enough, retry |
 | `generate-ai-video.mjs` fails on video.json (Gemini) | Gemini API error, quota exceeded, or safety filter | Check GEMINI_API_KEY, verify prompts don't trigger safety filters, retry |
 | `generate-ai-video.mjs` fails (carousel flow) | Video provider API error or timeout | Check provider credentials, retry, or drop `ai_video` flag |
@@ -446,7 +446,7 @@ node <skill-path>/scripts/compress-backgrounds.mjs <post-dir>
 node <skill-path>/scripts/build-slides.mjs <post-dir> [--format instagram|tiktok] [--template bold|minimal|magazine|neon|stack|clean]
 node <skill-path>/scripts/render-slides.mjs <post-dir> [--format instagram|tiktok]
 node <skill-path>/scripts/generate-video.mjs <post-dir> [--format instagram|tiktok]
-node <skill-path>/scripts/generate-tts.mjs <post-dir> [--provider openai|elevenlabs] [--voice <voice-id>]
+node <skill-path>/scripts/generate-tts.mjs <post-dir> [--provider openai|elevenlabs|gemini] [--voice <voice-id>]
 node <skill-path>/scripts/generate-ai-video.mjs <post-dir> [--provider gemini|kling] [--mode std|pro]
 node <skill-path>/scripts/composite-video.mjs <post-dir> [--format tiktok] [--subtitle-style bold|minimal|karaoke]
 ```
@@ -506,7 +506,7 @@ This checks slides.json, config, API key availability, and system dependencies. 
 | `build-slides.mjs` | HTML slide generation from slides.json |
 | `render-slides.mjs` | Playwright HTML-to-PNG rendering with font-loading wait |
 | `generate-video.mjs` | ffmpeg PNG-to-MP4 basic carousel video (CRF 18, web-optimized) |
-| `generate-tts.mjs` | TTS voiceover generation from video.json or slides.json (OpenAI or ElevenLabs) |
+| `generate-tts.mjs` | TTS voiceover generation from video.json or slides.json (OpenAI, ElevenLabs, or Gemini Live API) |
 | `generate-ai-video.mjs` | AI text-to-video dispatcher: resolves provider (Gemini Veo or Kling), delegates to providers/ |
 | `providers/gemini-video.mjs` | Gemini Veo 3.1 text-to-video (8s clips, @google/genai SDK) |
 | `providers/kling-video.mjs` | Kling text-to-video (10s clips, JWT auth) |
@@ -546,9 +546,11 @@ When both are available and no explicit `video_provider` is set, Gemini is used 
 ### TTS Keys
 
 Found automatically (order: config → env → OpenClaw):
-1. `postgen.config.json` → `openai_api_key`, `elevenlabs_api_key`
-2. Environment variables: `OPENAI_API_KEY`, `ELEVENLABS_API_KEY`
+1. `postgen.config.json` → `openai_api_key`, `elevenlabs_api_key`, `gemini_api_key`
+2. Environment variables: `OPENAI_API_KEY`, `ELEVENLABS_API_KEY`, `GEMINI_API_KEY`
 3. `~/.openclaw/openclaw.json` → same env var names
+
+Gemini TTS reuses the same `GEMINI_API_KEY` as image/video generation — no extra credentials needed.
 
 If no keys are found, ask the user to provide them. For AI video, at minimum they need one video provider (Gemini or Kling) and any one TTS provider.
 
@@ -571,5 +573,6 @@ Set via `video_provider` in `video.json` or `postgen.config.json`. Auto-detected
 ### TTS (Voiceover)
 - **openai**: OpenAI TTS (gpt-4o-mini-tts), uses `OPENAI_API_KEY`. Voices: alloy, echo, fable, onyx, nova (default), shimmer.
 - **elevenlabs**: ElevenLabs TTS, uses `ELEVENLABS_API_KEY`. Premium voice quality and cloning.
+- **gemini**: Gemini Live API (gemini-3.1-flash-live-preview), uses `GEMINI_API_KEY` (same key as image/video). Voices: Zephyr (default), Puck, Charon, Kore, Fenrir, Aoede, Leda, Orus, Schedar. Requires ffmpeg for PCM→MP3 conversion.
 
-Set via `tts_provider` in `postgen.config.json` or auto-detected from available credentials (tries OpenAI first, then ElevenLabs).
+Set via `tts_provider` in `postgen.config.json` or auto-detected from available credentials (tries OpenAI → ElevenLabs → Gemini).

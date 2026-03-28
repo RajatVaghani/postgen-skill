@@ -18,7 +18,7 @@
  * Usage:
  *   node generate-post.mjs <post-dir> [--skip-video] [--skip-compress] [--dry-run]
  *                                      [--timeout <ms>] [--ai-video] [--voiceover]
- *                                      [--tts-provider openai|elevenlabs]
+ *                                      [--tts-provider openai|elevenlabs|gemini]
  *
  * Flags:
  *   --dry-run            Validate without generating (no API calls)
@@ -26,7 +26,7 @@
  *   --skip-compress      Skip ffmpeg background compression (carousel flow only)
  *   --ai-video           Enable Kling AI video (carousel flow: image-to-video per slide)
  *   --voiceover          Enable TTS voiceover
- *   --tts-provider <p>   TTS provider: openai or elevenlabs (auto-detects if omitted)
+ *   --tts-provider <p>   TTS provider: openai, elevenlabs, or gemini (auto-detects if omitted)
  *   --timeout <ms>       Per-step timeout in ms (default: 600000 = 10 minutes)
  */
 import { execSync } from 'child_process';
@@ -212,7 +212,7 @@ if (flowType === 'video') {
   // Resolve TTS
   const vTtsProvider = ttsProvider || videoSpec.tts_provider || '';
   const hasVoiceoverEnabled = videoSpec.voiceover !== false;
-  const hasTTS = resolveVideoKey('openai-tts', config) || resolveVideoKey('elevenlabs', config);
+  const hasTTS = resolveVideoKey('openai-tts', config) || resolveVideoKey('elevenlabs', config) || resolveVideoKey('gemini-tts', config);
 
   // Print plan
   const sceneCount = videoSpec.scenes?.length || 0;
@@ -336,7 +336,7 @@ if (slidesRaw.tts_provider && !ttsProvider) ttsProvider = slidesRaw.tts_provider
 
 // If output_type is 'video' and no explicit flags, enable voiceover by default
 if ((outputType === 'video' || outputType === 'both') && !skipVideo && !enableVoiceover) {
-  const hasTTS = resolveVideoKey('openai-tts', config) || resolveVideoKey('elevenlabs', config);
+  const hasTTS = resolveVideoKey('openai-tts', config) || resolveVideoKey('elevenlabs', config) || resolveVideoKey('gemini-tts', config);
   if (hasTTS) enableVoiceover = true;
 }
 
