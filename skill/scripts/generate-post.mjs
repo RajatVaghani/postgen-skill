@@ -209,8 +209,8 @@ if (flowType === 'video') {
     process.exit(1);
   }
 
-  // Resolve TTS
-  const vTtsProvider = ttsProvider || videoSpec.tts_provider || '';
+  // Resolve TTS: CLI flag → video.json → config → auto-detect
+  const vTtsProvider = ttsProvider || videoSpec.tts_provider || config.tts_provider || '';
   const hasVoiceoverEnabled = videoSpec.voiceover !== false;
   const hasTTS = resolveVideoKey('openai-tts', config) || resolveVideoKey('elevenlabs', config) || resolveVideoKey('gemini-tts', config);
 
@@ -333,6 +333,7 @@ if (!skipVideo && outputType === 'image') {
 if (slidesRaw.ai_video === true && !skipVideo) enableAiVideo = true;
 if (slidesRaw.voiceover === true && !skipVideo) enableVoiceover = true;
 if (slidesRaw.tts_provider && !ttsProvider) ttsProvider = slidesRaw.tts_provider;
+if (!ttsProvider && config.tts_provider) ttsProvider = config.tts_provider;
 
 // If output_type is 'video' and no explicit flags, enable voiceover by default
 if ((outputType === 'video' || outputType === 'both') && !skipVideo && !enableVoiceover) {

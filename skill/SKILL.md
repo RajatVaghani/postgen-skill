@@ -212,7 +212,7 @@ For swipeable image carousels or basic video slideshows, compose `slides.json`. 
 - `formats`: Array of format names to generate. `"instagram"` (1080x1350, 4:5) and/or `"tiktok"` (1080x1920, 9:16). If omitted, falls back to `defaults.formats` in config.
 - `ai_video`: `true` to enable AI video generation for the carousel. Only set when the user explicitly wants AI-animated video.
 - `voiceover`: `true` to enable TTS voiceover narration. Auto-enabled for video output when TTS credentials are available.
-- `tts_provider`: Override TTS provider (`"openai"`, `"elevenlabs"`, or `"gemini"`). Omit to auto-detect from available credentials.
+- `tts_provider`: **Do NOT set this field** — the pipeline reads `tts_provider` from `postgen.config.json` automatically. Only include if the user explicitly asks to override the config for this specific post. Valid values: `"openai"`, `"elevenlabs"`, `"gemini"`.
 
 If the user chose to provide their own content (Question 3), use their text for slide titles and bodies. Otherwise, generate engaging content based on their topic.
 
@@ -242,7 +242,6 @@ For AI-generated video posts with scene descriptions, voiceover narration, and s
   "mode": "std",
   "template": "bold",
   "voiceover": true,
-  "tts_provider": "openai",
   "visual_style": "Cinematic commercial look. Warm golden color grade with soft shadows. Smooth slow camera movements, shallow depth of field.",
   "negative_prompt": "blurry, low quality, watermark",
   "scenes": [
@@ -274,7 +273,7 @@ For AI-generated video posts with scene descriptions, voiceover narration, and s
 - `mode`: `"std"` (standard quality) or `"pro"` (higher quality, longer processing — Kling only)
 - `template`: Template for the CTA end-card: `"bold"`, `"neon"`, `"minimal"`, `"clean"`, `"stack"`, or `"magazine"`. Uses the same branded slide renderer as carousels.
 - `voiceover`: `true` to enable TTS narration (reads `voiceover_text` from each scene)
-- `tts_provider`: `"openai"`, `"elevenlabs"`, or `"gemini"`. Omit to auto-detect from credentials.
+- `tts_provider`: **Do NOT set this field** — the pipeline reads `tts_provider` from `postgen.config.json` automatically. Only include this field if the user explicitly asks to override the config for this specific post. Valid values: `"openai"`, `"elevenlabs"`, `"gemini"`.
 - `visual_style`: **Strongly recommended.** A description of the consistent visual look applied to ALL scene prompts — color grading, lighting, camera style, and subject appearance (e.g. "Cinematic warm golden color grade, soft shadows. A confident man in his late 20s with short dark hair wearing a grey t-shirt. Smooth slow camera movements, shallow depth of field."). This gets automatically prepended to every scene prompt to ensure visual coherence across clips. Without this, each clip will have different actors, lighting, and styles. See [video-content-guide.md](references/video-content-guide.md) for detailed guidance.
 - `negative_prompt`: Text to exclude from generation (e.g. "blurry, watermark, low quality")
 - `scenes`: Array of scene objects (up to 5 scenes), each with:
