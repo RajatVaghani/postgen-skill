@@ -160,6 +160,10 @@ Set `output_type` in `slides.json` per post, or set `defaults.output_type` in co
 │           ├── voiceover/              # TTS audio files (when voiceover enabled)
 │           │   └── slide-{N}.mp3 (or scene-{N}.mp3 for video.json)
 │           ├── voiceover.json          # TTS manifest with timing
+│           ├── video-references/        # Reference images for image-guided video (Gemini only)
+│           │   ├── ref-{N}.png         # Character reference photos (shared across clips)
+│           │   ├── scene-{N}.png       # First-frame images (one per scene)
+│           │   └── manifest.json
 │           ├── ai-video/               # AI video clips (Gemini Veo or Kling, from video.json scenes)
 │           │   └── scene-{N}.mp4
 │           ├── ai-video.json           # AI video manifest with scene metadata

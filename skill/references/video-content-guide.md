@@ -101,6 +101,10 @@ The first word of voiceover should be the start of the hook — no warm-up.
 
 AI video generators create each clip independently. Without explicit style direction, clips will have different actors, color grades, lighting, and camera styles — making the final video feel disjointed.
 
+PostGen provides TWO layers of visual consistency for Gemini Veo:
+
+### Layer 1: `visual_style` (text prompt — always use)
+
 **Use the `visual_style` field in video.json** to define a consistent look across all scenes. This style description gets automatically prepended to every scene prompt, ensuring coherent visuals throughout the video.
 
 A good `visual_style` should define:
@@ -114,6 +118,54 @@ A good `visual_style` should define:
 ```json
 "visual_style": "Cinematic commercial look. Warm golden color grade with soft shadows. A confident South Asian man in his late 20s with short styled hair, wearing a casual fitted grey t-shirt. Smooth slow camera movements, shallow depth of field, natural daylight."
 ```
+
+### Layer 2: `reference_images` (image-guided — Gemini Veo only, STRONGLY RECOMMENDED)
+
+While `visual_style` text helps, text alone can't guarantee the same face, body, or exact color palette across clips. **Image-guided generation** solves this by passing actual reference photos to Veo 3.1.
+
+When `reference_images.enabled` is `true`, the pipeline generates AI images BEFORE video generation:
+
+**Character references (up to 3 shared images):**
+Neutral photos of the main subject from different angles (medium shot, close-up portrait, three-quarter body). These are passed to Veo as `referenceType: "asset"` — Veo locks onto the subject's appearance and preserves it across ALL clips. This is the single biggest improvement for character consistency.
+
+**First-frame images (one per scene):**
+A still photograph representing the opening frame of each clip, generated from `visual_style` + the scene's `prompt`. Veo uses this as the starting point and animates FROM it, ensuring each clip begins exactly as intended — right colors, right composition, right subject.
+
+**How to enable:**
+```json
+"reference_images": {
+  "enabled": true,
+  "subject_description": "A confident South Asian man in his late 20s with short styled dark hair and a trimmed beard, wearing a fitted navy henley shirt. Athletic build, warm brown skin tone.",
+  "reference_count": 3
+}
+```
+
+**Writing a great `subject_description`:**
+
+The `subject_description` is used to generate the character reference photos. It should describe the main person/character appearing across scenes. Be very specific — Veo uses these photos to identify and preserve the subject.
+
+| Component | Good | Bad |
+|-----------|------|-----|
+| Age | "in his late 20s" | "young" |
+| Ethnicity/skin | "South Asian, warm brown skin" | "dark-skinned" |
+| Hair | "short styled dark hair, trimmed beard" | "short hair" |
+| Clothing | "fitted navy henley shirt" | "casual clothes" |
+| Build | "athletic build" | (omitted) |
+
+**If the video has no recurring character** (e.g., product shots, abstract visuals, landscapes), you can either:
+- Set `reference_images.enabled: false` — skip image-guided generation entirely
+- Or provide a product/object description in `subject_description` instead — Veo supports "asset" references for products and objects too. Example: `"A sleek matte-black wireless earbud case with rounded edges, silver hinge, and embossed logo on the lid. Photographed on a white surface under soft studio lighting."`
+
+**Important:** If you omit `reference_images` entirely from video.json with Gemini provider, reference images are **enabled by default** using `visual_style` as the subject description fallback. To explicitly disable, set `"reference_images": {"enabled": false}`.
+
+**Constraints and notes:**
+- Max 3 character reference images per clip (Veo API limit)
+- Only works with Gemini Veo provider (Kling does not support reference images — silently skipped)
+- Duration is fixed at 8s when using reference images (which is Veo's default)
+- Reference images are generated in 9:16 aspect ratio to match video output
+- Adds ~2-4 minutes to the pipeline (3-8 extra image API calls depending on scene count + reference_count)
+- `personGeneration` is set to `"allow_adult"` for regional compliance — minors cannot be generated
+- The pipeline handles reference images automatically via `generate-post.mjs` — do NOT run `generate-video-references.mjs` manually unless retrying after a failure
 
 This ensures the same person, same lighting, and same color palette across all 5 scenes.
 
@@ -173,7 +225,8 @@ Before finalizing `video.json`, verify:
 2. **Emotional trigger:** Is there a clear emotion driving the video? (curiosity, fear, surprise, anger, relief)
 3. **Value delivery:** Does the viewer learn something, realize something, or feel something by the end?
 4. **Visual style set?** Does video.json have a `visual_style` field defining color grade, lighting, subject appearance, and camera style? Without this, clips will look disjointed.
-5. **Scene variety:** Are the scene prompts varied in LOCATION and ACTION? (not all "person at desk" — mix close-ups, wide shots, different settings). The `visual_style` handles consistency; scene prompts handle variety.
+5. **Reference images configured?** If using Gemini Veo and the video features a recurring character/subject, is `reference_images.enabled: true` with a detailed `subject_description`? This is the single biggest improvement for visual consistency.
+6. **Scene variety:** Are the scene prompts varied in LOCATION and ACTION? (not all "person at desk" — mix close-ups, wide shots, different settings). The `visual_style` and reference images handle consistency; scene prompts handle variety.
 6. **Flow:** Do the scenes progress logically? Hook → develop → evidence/story → conclusion → CTA
 7. **Brand safety:** Zero text/logos/brand names in scene prompts. Brand mentions only in voiceover_text and CTA.
 7. **Scene count:** 5 scenes + CTA end-card. Clip duration is fixed per provider (8s Gemini, 10s Kling).

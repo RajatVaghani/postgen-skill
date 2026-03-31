@@ -244,6 +244,11 @@ For AI-generated video posts with scene descriptions, voiceover narration, and s
   "voiceover": true,
   "visual_style": "Cinematic commercial look. Warm golden color grade with soft shadows. Smooth slow camera movements, shallow depth of field.",
   "negative_prompt": "blurry, low quality, watermark",
+  "reference_images": {
+    "enabled": true,
+    "subject_description": "A confident South Asian man in his late 20s with short styled dark hair and a trimmed beard, wearing a fitted navy henley shirt.",
+    "reference_count": 3
+  },
   "scenes": [
     {
       "scene_number": 1,
@@ -272,10 +277,14 @@ For AI-generated video posts with scene descriptions, voiceover narration, and s
 - `aspect_ratio`: `"9:16"` for TikTok/Reels/Shorts, `"16:9"` for YouTube, `"1:1"` for Instagram Feed
 - `mode`: `"std"` (standard quality) or `"pro"` (higher quality, longer processing — Kling only)
 - `template`: Template for the CTA end-card: `"bold"`, `"neon"`, `"minimal"`, `"clean"`, `"stack"`, or `"magazine"`. Uses the same branded slide renderer as carousels.
-- `voiceover`: `true` to enable TTS narration (reads `voiceover_text` from each scene)
+- `voiceover`: Enable TTS narration (reads `voiceover_text` from each scene). **Defaults to `true`** — voiceover runs unless you explicitly set `"voiceover": false`. Omitting this field = voiceover ON.
 - `tts_provider`: **Do NOT set this field** — the pipeline reads `tts_provider` from `postgen.config.json` automatically. Only include this field if the user explicitly asks to override the config for this specific post. Valid values: `"openai"`, `"elevenlabs"`, `"gemini"`.
 - `visual_style`: **Strongly recommended.** A description of the consistent visual look applied to ALL scene prompts — color grading, lighting, camera style, and subject appearance (e.g. "Cinematic warm golden color grade, soft shadows. A confident man in his late 20s with short dark hair wearing a grey t-shirt. Smooth slow camera movements, shallow depth of field."). This gets automatically prepended to every scene prompt to ensure visual coherence across clips. Without this, each clip will have different actors, lighting, and styles. See [video-content-guide.md](references/video-content-guide.md) for detailed guidance.
 - `negative_prompt`: Text to exclude from generation (e.g. "blurry, watermark, low quality")
+- `reference_images`: Controls image-guided video generation for dramatically better visual consistency across clips. When enabled, the pipeline generates reference images BEFORE video generation and passes them to Veo 3.1 as first-frame images and character references. **Defaults:** If you omit this field entirely with Gemini provider, reference images are ENABLED by default (the pipeline will use `visual_style` as the subject description fallback). To explicitly disable, set `"reference_images": {"enabled": false}`. Fields:
+  - `enabled`: Boolean. **Defaults to `true` when provider is `"gemini"`**. Set `false` to use text-only mode. Ignored for Kling (Kling does not support reference images).
+  - `subject_description`: Detailed description (aim for 30-60 words) of the main character/subject appearing across scenes. Include: age, gender, ethnicity/skin tone, hair (color, length, style), clothing (specific items and colors), build/body type. This description is used to generate 9:16 reference photos that Veo uses to maintain character identity across clips. **If omitted, falls back to `visual_style`** — but a dedicated subject description produces much better character consistency. For product-only videos (no person), describe the product instead: `"A sleek matte-black wireless earbud case with rounded edges, silver hinge, and embossed logo. Studio lighting, white background."` Example for person: `"A confident South Asian man in his late 20s with short styled dark hair and a trimmed beard, wearing a fitted navy henley shirt. Athletic build, warm brown skin tone."`
+  - `reference_count`: Number of character reference images to generate. Integer, 1-3. **Default: 3.** More refs = better consistency but more image API calls. Use 1 for fast iteration, 3 for final production.
 - `scenes`: Array of scene objects (up to 5 scenes), each with:
   - `scene_number`: Sequential number (1, 2, 3, etc.)
   - `prompt`: Rich, cinematic description of the visual. Include lighting, camera movement, mood, colors, composition. The more detailed, the better the output. **NEVER include text, brand names, logos, or readable words in prompts — AI video CANNOT render text accurately**. See [video-content-guide.md](references/video-content-guide.md) for good/bad prompt examples.
@@ -296,6 +305,56 @@ For AI-generated video posts with scene descriptions, voiceover narration, and s
 - Write visually rich prompts with camera directions ("tracking shot", "close-up on...", "wide establishing shot")
 - Keep voiceover_text natural and conversational, not robotic or bullet-pointed
 - All scenes flow together as a cohesive video narrative, ending with the branded CTA
+
+**Image-guided video (Gemini Veo only):**
+
+When `reference_images.enabled` is `true` (the default for Gemini), the pipeline runs an extra step BEFORE video generation. **You do NOT need to run `generate-video-references.mjs` manually — `generate-post.mjs` handles it automatically.** The reference image script is only listed in error recovery for manual retries.
+
+**How it works:**
+
+1. **Reference image generation** (~2-4 min): Generates AI images using the same image provider (Google GenAI / OpenAI) in 9:16 aspect ratio:
+   - **Character reference images** (up to 3): Neutral poses of the main subject from different angles (medium shot, close-up portrait, three-quarter body). Generated from `reference_images.subject_description`. These are passed to Veo as `referenceType: "asset"` images — Veo locks onto the subject's appearance and preserves it across ALL clips.
+   - **First-frame images** (one per scene): A still photograph representing the opening frame of each clip, generated from `visual_style` + scene `prompt`. Veo animates FROM this starting frame, ensuring each clip begins with the exact composition, colors, and subject you intended.
+
+2. **Video generation with images**: Each clip is generated with both its first-frame image AND the shared character references, producing dramatically more consistent results — same person, same lighting, same color palette across the entire video.
+
+**When to use reference images vs. skip them:**
+
+| Use reference images when... | Skip reference images when... |
+|------------------------------|-------------------------------|
+| Video features a recurring person/character | Video is abstract, landscape, or text-free motion graphics |
+| Visual consistency across clips matters | Fast iteration / testing prompts quickly |
+| Final production-quality output | Budget-constrained (saves 3-8 image API calls) |
+| Subject identity must stay the same (same face, body, clothes) | Video is product-only with no specific subject to track |
+
+To skip: set `"reference_images": {"enabled": false}` in video.json, or pass `--no-refs` flag to generate-ai-video.mjs (CLI flag overrides video.json setting).
+
+**How to write `subject_description` for best results:**
+
+The `subject_description` field is used to generate the character reference photos that Veo uses across all clips. Aim for 30-60 words. Be specific and detailed:
+
+- **Good**: `"A confident South Asian man in his late 20s with short styled dark hair and a trimmed beard, wearing a fitted navy henley shirt. Athletic build, warm brown skin tone."`
+- **Good**: `"A young East Asian woman in her early 30s with shoulder-length black hair, wearing a crisp white blouse and minimal gold jewelry. Slim build, fair skin."`
+- **Good (product)**: `"A sleek matte-black wireless earbud case with rounded edges, silver hinge, and embossed logo on the lid. Photographed on a white surface under soft studio lighting."`
+- **Bad**: `"A person"` ← too vague, Veo will create different people per clip
+- **Bad**: `"professional man"` ← not enough physical detail for consistent identity
+
+Include: approximate age, gender, ethnicity/skin tone, hair (color, length, style), clothing (specific items and colors), build/body type. The MORE specific you are, the more consistent the character appears across clips. If omitted, `visual_style` is used as fallback — but a dedicated description always produces better results.
+
+**Reference image failure handling:**
+
+Reference image generation is fault-tolerant. If some images fail:
+- The pipeline logs warnings but continues — video generation proceeds with whatever images were successfully created.
+- If ALL reference images fail, the pipeline falls back to text-only video generation automatically. The video will still be generated, just without image guidance.
+- **To regenerate references**: delete the `video-references/` folder and re-run `generate-post.mjs`. The script is idempotent — existing images > 1KB are skipped, so only failed/missing ones are regenerated.
+- If reference images produce the wrong subject appearance, update `subject_description` in video.json, delete `video-references/`, and re-run.
+
+**Important constraints:**
+- Reference images only work with Gemini Veo provider (Kling does not support them — they are silently skipped)
+- Max 3 character reference images per clip (Veo API limit)
+- Duration is fixed at 8s when using reference images (Veo's default — already what PostGen uses)
+- Reference images are generated in 9:16 portrait aspect ratio to match vertical video output
+- Gemini Veo uses `personGeneration: "allow_adult"` for regional compliance — minors cannot be generated in AI video
 
 **Content quality (MUST follow [video-content-guide.md](references/video-content-guide.md)):**
 
@@ -347,9 +406,13 @@ Caption format in `caption.txt`:
 {post-dir}/
   video.json                          ← content definition (scenes, cta, model)
   caption.txt                         ← social media caption + hashtags
-  ai-video/                           ← AI text-to-video clips (Gemini Veo or Kling)
+  video-references/                   ← reference images for image-guided generation (Gemini only)
+    ref-1.png, ref-2.png, ref-3.png  ← character reference photos (shared across clips)
+    scene-1.png, scene-2.png, ...    ← first-frame images (one per scene)
+    manifest.json                     ← reference image metadata
+  ai-video/                           ← AI video clips (Gemini Veo or Kling)
     clip-1.mp4, clip-2.mp4, ...
-    manifest.json                     ← clip metadata
+    manifest.json                     ← clip metadata (includes image_guided flag)
   voiceover/                          ← TTS audio per scene
     scene-1.mp3, scene-2.mp3, ...    ← NOTE: "scene-N" not "slide-N"
     manifest.json                     ← segment metadata
@@ -390,9 +453,9 @@ Override flags: `--skip-video`, `--skip-compress`, `--ai-video`, `--voiceover`, 
 
 #### Flow B: AI Video Pipeline (video.json)
 
-Runs: AI text-to-video (Gemini Veo or Kling) → TTS voiceover → composite (AI clips + CTA + voiceover + subtitles).
+Runs: reference images (Gemini only) → AI video (Gemini Veo or Kling) → TTS voiceover → composite (AI clips + CTA + voiceover + subtitles).
 
-Takes **5-15 minutes** depending on the video provider and number of scenes.
+Takes **7-20 minutes** depending on the video provider, reference image generation, and number of scenes.
 
 **Produces ONE video file.** This single MP4 is reposted to TikTok, Instagram Reels, and YouTube Shorts — they all use 9:16 vertical format. Do NOT run the pipeline multiple times for different platforms.
 
@@ -433,6 +496,7 @@ If the pipeline fails, look at the output to identify the failure point. The pip
 | `generate-tts.mjs` fails | Missing TTS credentials | Add openai_api_key, elevenlabs_api_key, or gemini_api_key to config or env |
 | `generate-ai-video.mjs` fails on video.json (Kling) | Kling API error, rate limit, or invalid scene prompt | Check Kling credentials and quota, verify scene prompts are detailed enough, retry |
 | `generate-ai-video.mjs` fails on video.json (Gemini) | Gemini API error, quota exceeded, or safety filter | Check GEMINI_API_KEY, verify prompts don't trigger safety filters, retry |
+| `generate-video-references.mjs` fails | Image API error or rate limit | Check image provider key, wait and retry. Or delete `video-references/` folder and re-run pipeline. Video gen will still work without refs (falls back to text-only mode automatically). |
 | `generate-ai-video.mjs` fails (carousel flow) | Video provider API error or timeout | Check provider credentials, retry, or drop `ai_video` flag |
 | `composite-video.mjs` fails | ffmpeg issue or missing clips | Check ai-video/manifest.json and voiceover/manifest.json exist, ensure ffmpeg works |
 | Pipeline times out | Slow API or network | Increase timeout: `--timeout 900000` (15 min) |
@@ -446,7 +510,10 @@ node <skill-path>/scripts/build-slides.mjs <post-dir> [--format instagram|tiktok
 node <skill-path>/scripts/render-slides.mjs <post-dir> [--format instagram|tiktok]
 node <skill-path>/scripts/generate-video.mjs <post-dir> [--format instagram|tiktok]
 node <skill-path>/scripts/generate-tts.mjs <post-dir> [--provider openai|elevenlabs|gemini] [--voice <voice-id>]
-node <skill-path>/scripts/generate-ai-video.mjs <post-dir> [--provider gemini|kling] [--mode std|pro]
+node <skill-path>/scripts/generate-video-references.mjs <post-dir>
+node <skill-path>/scripts/generate-ai-video.mjs <post-dir> [--provider gemini|kling] [--mode std|pro] [--no-refs]
+  # --no-refs: Skip loading reference images, use text-only video generation even if reference images exist.
+  #            Overrides video.json reference_images setting. Use for faster iteration or if refs are corrupt.
 node <skill-path>/scripts/composite-video.mjs <post-dir> [--format tiktok] [--subtitle-style bold|minimal|karaoke]
 ```
 
@@ -506,8 +573,9 @@ This checks slides.json, config, API key availability, and system dependencies. 
 | `render-slides.mjs` | Playwright HTML-to-PNG rendering with font-loading wait |
 | `generate-video.mjs` | ffmpeg PNG-to-MP4 basic carousel video (CRF 18, web-optimized) |
 | `generate-tts.mjs` | TTS voiceover generation from video.json or slides.json (OpenAI, ElevenLabs, or Gemini Live API) |
-| `generate-ai-video.mjs` | AI text-to-video dispatcher: resolves provider (Gemini Veo or Kling), delegates to providers/ |
-| `providers/gemini-video.mjs` | Gemini Veo 3.1 text-to-video (8s clips, @google/genai SDK) |
+| `generate-video-references.mjs` | Generate reference images for image-guided video (character refs + first-frames) |
+| `generate-ai-video.mjs` | AI video dispatcher: resolves provider, loads reference images, delegates to providers/ |
+| `providers/gemini-video.mjs` | Gemini Veo 3.1 video (8s clips, supports first-frame + character reference images) |
 | `providers/kling-video.mjs` | Kling text-to-video (10s clips, JWT auth) |
 | `composite-video.mjs` | Final video: stitch AI clips + voiceover audio + burned-in subtitles |
 | `kling-client.mjs` | Kling API client: JWT auth, createTextToVideo, waitForTextToVideo, polling, download |

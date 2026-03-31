@@ -5,6 +5,10 @@
  * Thin dispatcher that resolves the video provider (Gemini Veo or Kling)
  * and delegates clip generation to the appropriate provider module.
  *
+ * When reference images exist in {post-dir}/video-references/, they are
+ * automatically loaded and passed to the Gemini Veo provider for
+ * image-guided video generation (first-frame + character references).
+ *
  * Usage:
  *   node generate-ai-video.mjs <post-dir> [--provider gemini|kling]
  *                                          [--model kling-v3]
@@ -12,6 +16,7 @@
  *                                          [--aspect-ratio 9:16|16:9|1:1]
  *                                          [--concurrency N]
  *                                          [--retries N]
+ *                                          [--no-refs]
  *
  * Provider resolution order:
  *   1. --provider CLI flag
@@ -39,6 +44,7 @@ let mode = '';
 let aspectRatio = '';
 let maxRetries = 2;
 let concurrency = 2;
+let noRefs = false;
 
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--provider' && args[i + 1]) providerFlag = args[++i];
@@ -47,6 +53,7 @@ for (let i = 0; i < args.length; i++) {
   else if (args[i] === '--aspect-ratio' && args[i + 1]) aspectRatio = args[++i];
   else if (args[i] === '--concurrency' && args[i + 1]) concurrency = parseInt(args[++i]);
   else if (args[i] === '--retries' && args[i + 1]) maxRetries = parseInt(args[++i]);
+  else if (args[i] === '--no-refs') noRefs = true;
   else if (!args[i].startsWith('--')) postDir = args[i];
 }
 
@@ -127,14 +134,81 @@ if (provider === 'gemini') {
 }
 
 // ---------------------------------------------------------------------------
+// Load reference images (if available, Gemini only)
+// ---------------------------------------------------------------------------
+
+function loadReferenceData() {
+  if (provider !== 'gemini' || noRefs) return {};
+
+  const refDir = path.join(postDir, 'video-references');
+  const manifestPath = path.join(refDir, 'manifest.json');
+
+  if (!fs.existsSync(manifestPath)) {
+    console.log('  No video-references/manifest.json found — using text-to-video mode.');
+    return {};
+  }
+
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+  const referenceData = { firstFrames: new Map(), characterRefs: [] };
+
+  // Load character reference images
+  if (manifest.character_references) {
+    for (const ref of manifest.character_references) {
+      if (!ref.exists) continue;
+      const filePath = path.join(refDir, ref.file);
+      if (fs.existsSync(filePath)) {
+        const imageBytes = fs.readFileSync(filePath);
+        if (imageBytes.length > 1024) {
+          referenceData.characterRefs.push({
+            imageBytes,
+            mimeType: 'image/png',
+          });
+        }
+      }
+    }
+  }
+
+  // Load first-frame images (matched by scene number)
+  if (manifest.first_frames) {
+    for (const ff of manifest.first_frames) {
+      if (!ff.exists) continue;
+      const filePath = path.join(refDir, ff.file);
+      if (fs.existsSync(filePath)) {
+        const imageBytes = fs.readFileSync(filePath);
+        if (imageBytes.length > 1024) {
+          referenceData.firstFrames.set(ff.scene_number, {
+            imageBytes,
+            mimeType: 'image/png',
+          });
+        }
+      }
+    }
+  }
+
+  const charCount = referenceData.characterRefs.length;
+  const frameCount = referenceData.firstFrames.size;
+
+  if (charCount === 0 && frameCount === 0) {
+    console.log('  Reference images found but none were loadable — using text-to-video mode.');
+    return {};
+  }
+
+  console.log(`  Loaded reference images: ${charCount} character refs, ${frameCount} first-frames`);
+  return referenceData;
+}
+
+const referenceData = loadReferenceData();
+
+// ---------------------------------------------------------------------------
 // Log plan
 // ---------------------------------------------------------------------------
 
 const clipDuration = provider === 'gemini' ? 8 : 10;
 const totalDuration = scenes.length * clipDuration;
+const hasRefs = (referenceData.firstFrames?.size > 0) || (referenceData.characterRefs?.length > 0);
 
 console.log(`\nPostGen AI Video Generation`);
-console.log(`  Provider: ${provider}`);
+console.log(`  Provider: ${provider}${hasRefs ? ' (image-guided)' : ''}`);
 console.log(`  Aspect ratio: ${aspectRatio}`);
 console.log(`  Scenes: ${scenes.length}`);
 console.log(`  Estimated duration: ${totalDuration}s (${clipDuration}s per clip)`);
@@ -151,7 +225,7 @@ const providerModule = provider === 'gemini'
   ? await import(path.join(__dirname, 'providers', 'gemini-video.mjs'))
   : await import(path.join(__dirname, 'providers', 'kling-video.mjs'));
 
-const { clips, errors } = await providerModule.generateClips({
+const generateArgs = {
   postDir,
   videoSpec,
   credentials,
@@ -162,7 +236,14 @@ const { clips, errors } = await providerModule.generateClips({
     concurrency,
     maxRetries,
   },
-});
+};
+
+// Pass reference data to Gemini provider
+if (provider === 'gemini' && hasRefs) {
+  generateArgs.referenceData = referenceData;
+}
+
+const { clips, errors } = await providerModule.generateClips(generateArgs);
 
 // ---------------------------------------------------------------------------
 // Write manifest
@@ -173,10 +254,15 @@ if (!fs.existsSync(videoDir)) fs.mkdirSync(videoDir, { recursive: true });
 
 const manifest = {
   provider,
-  type: 'text-to-video',
+  type: hasRefs ? 'image-guided-video' : 'text-to-video',
   model: provider === 'gemini' ? 'veo-3.1-generate-preview' : (modelName || videoSpec.model || 'kling-v3'),
   mode: mode || videoSpec.mode || 'std',
   aspect_ratio: aspectRatio,
+  image_guided: hasRefs,
+  reference_images: hasRefs ? {
+    character_refs: referenceData.characterRefs?.length || 0,
+    first_frames: referenceData.firstFrames?.size || 0,
+  } : null,
   generated_at: new Date().toISOString(),
   scenes_total: scenes.length,
   clips,
@@ -191,7 +277,7 @@ fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
 const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
 
 console.log(`\nAI Video generation complete in ${elapsed}s`);
-console.log(`  Provider: ${provider}`);
+console.log(`  Provider: ${provider}${hasRefs ? ' (image-guided)' : ''}`);
 console.log(`  Clips: ${manifest.total_clips}/${scenes.length}`);
 console.log(`  Total duration: ${manifest.total_duration}s`);
 console.log(`  Output: ${videoDir}/`);

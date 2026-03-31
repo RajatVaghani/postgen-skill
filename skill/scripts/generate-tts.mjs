@@ -334,7 +334,7 @@ async function geminiLiveTTS(ai, text, voice) {
   const session = await ai.live.connect({
     model: GEMINI_LIVE_MODEL,
     config: {
-      responseModalities: [Modality.AUDIO],
+      responseModalities: ['AUDIO'],
       systemInstruction:
         'You are a professional voiceover narrator. Read the user\'s text aloud exactly as written, word for word. ' +
         'Use a natural, engaging narration tone appropriate for social media video content. ' +

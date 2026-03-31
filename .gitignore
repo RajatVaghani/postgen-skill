@@ -1,5 +1,10 @@
 samples/
 template-previews/
+output/
+node_modules/
+package-lock.json
+package.json
+postgen.config.json
 *.mp4
 *.png
 *.jpg

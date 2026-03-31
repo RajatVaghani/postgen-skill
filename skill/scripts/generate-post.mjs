@@ -233,15 +233,30 @@ if (flowType === 'video') {
   if (dryRun) console.log('  MODE: DRY RUN');
   console.log();
 
+  // Check if reference images are enabled
+  const refConfig = videoSpec.reference_images || {};
+  const refsEnabled = refConfig.enabled !== false && videoProvider === 'gemini';
+  if (refsEnabled) {
+    console.log(`  Reference images: enabled (first-frames + character refs)`);
+  } else if (videoProvider === 'gemini') {
+    console.log(`  Reference images: disabled (set reference_images.enabled: true in video.json)`);
+  }
+
   if (dryRun) {
     console.log('--- Dry run: video.json schema validation passed ---');
     console.log(`  ${sceneCount} scenes, ~${estDuration}s total${hasCta ? ' + 5s CTA' : ''}`);
+    if (refsEnabled) console.log(`  Reference images: will generate before video clips`);
     console.log('\n=== Dry run complete ===');
     releaseLock(lockPath);
     process.exit(0);
   }
 
-  // Step 1: Generate AI video clips
+  // Step 0 (Gemini only): Generate reference images for visual consistency
+  if (refsEnabled) {
+    run('generate-video-references.mjs');
+  }
+
+  // Step 1: Generate AI video clips (auto-loads reference images if available)
   run('generate-ai-video.mjs', `--provider ${videoProvider}`);
 
   // Validate: ai-video manifest must exist and have clips

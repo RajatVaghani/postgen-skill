@@ -3,6 +3,13 @@
  *
  * Generates one AI video clip per scene using Google's Veo 3.1 text-to-video
  * model via the @google/genai SDK. Each clip is 8 seconds (fixed by Veo).
+ *
+ * Supports three image-guided modes for improved visual consistency:
+ *   1. First-frame image: Sets the starting frame for each clip (image → video)
+ *   2. Reference images: Up to 3 asset reference images shared across clips
+ *      for character/subject consistency
+ *   3. Text-only: Falls back to pure text-to-video when no images are provided
+ *
  * Supports retry with exponential backoff and controlled concurrency.
  *
  * Exports a single function: generateClips()
@@ -24,9 +31,12 @@ const MAX_POLL_MS = 600_000; // 10 minutes per clip
  * @param {object} params.videoSpec      Parsed video.json
  * @param {object} params.credentials    { key } — the Gemini API key
  * @param {object} params.options        { aspectRatio, concurrency, maxRetries }
+ * @param {object} params.referenceData  Optional. { firstFrames, characterRefs }
+ *   - firstFrames: Map<sceneNumber, { imageBytes: Buffer, mimeType: string }>
+ *   - characterRefs: Array<{ imageBytes: Buffer, mimeType: string }> (max 3)
  * @returns {{ clips: Array, errors: Array }}
  */
-export async function generateClips({ postDir, videoSpec, credentials, options = {} }) {
+export async function generateClips({ postDir, videoSpec, credentials, options = {}, referenceData = {} }) {
   const {
     aspectRatio = '9:16',
     concurrency = 2,
@@ -43,9 +53,25 @@ export async function generateClips({ postDir, videoSpec, credentials, options =
   const { GoogleGenAI } = wsRequire('@google/genai');
   const ai = new GoogleGenAI({ apiKey: credentials.key });
 
+  // Determine image-guided mode
+  const { firstFrames = new Map(), characterRefs = [] } = referenceData;
+  const hasFirstFrames = firstFrames.size > 0;
+  const hasCharRefs = characterRefs.length > 0;
+
+  const modeLabel = hasFirstFrames && hasCharRefs
+    ? 'image-guided (first-frame + character references)'
+    : hasFirstFrames
+      ? 'image-guided (first-frame only)'
+      : hasCharRefs
+        ? 'image-guided (character references only)'
+        : 'text-to-video';
+
   console.log(`  Provider: Gemini Veo 3.1 (${VEO_MODEL})`);
+  console.log(`  Mode: ${modeLabel}`);
   console.log(`  Clip duration: 8s per scene (fixed by Veo)`);
   console.log(`  Scenes: ${scenes.length}`);
+  if (hasFirstFrames) console.log(`  First-frame images: ${firstFrames.size}`);
+  if (hasCharRefs) console.log(`  Character references: ${characterRefs.length}`);
   console.log(`  Concurrency: ${concurrency}`);
   console.log();
 
@@ -88,6 +114,8 @@ export async function generateClips({ postDir, videoSpec, credentials, options =
         negativePrompt,
         visualStyle,
         maxRetries,
+        firstFrameImage: firstFrames.get(scene.scene_number) || null,
+        characterRefs,
       })
         .then((result) => { results[idx] = result; })
         .catch((err) => {
@@ -112,6 +140,7 @@ export async function generateClips({ postDir, videoSpec, credentials, options =
 async function generateSingleClip({
   scene, clipIndex, totalClips, outputDir, ai,
   aspectRatio, negativePrompt, visualStyle, maxRetries,
+  firstFrameImage, characterRefs,
 }) {
   const clipNum = clipIndex + 1;
   // Build prompt: visual_style prefix + scene prompt + negative prompt suffix
@@ -119,19 +148,50 @@ async function generateSingleClip({
   if (visualStyle) prompt = `${visualStyle}. ${prompt}`;
   if (negativePrompt) prompt = `${prompt}. Avoid: ${negativePrompt}`;
 
+  // Determine generation mode for logging
+  const hasFirstFrame = !!firstFrameImage;
+  const hasRefs = characterRefs && characterRefs.length > 0;
+
   for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
     try {
-      console.log(`  [clip ${clipNum}/${totalClips}] Scene ${scene.scene_number} (attempt ${attempt})...`);
+      const modeStr = hasFirstFrame ? '(first-frame + text)' : '(text-only)';
+      console.log(`  [clip ${clipNum}/${totalClips}] Scene ${scene.scene_number} ${modeStr} (attempt ${attempt})...`);
       console.log(`    Prompt: "${scene.prompt.slice(0, 70)}..."`);
 
-      let operation = await ai.models.generateVideos({
+      // Build the generateVideos request
+      // Note: 'allow_all' for personGeneration is not supported in some regions
+      // and when using reference images. Use 'allow_adult' instead.
+      const request = {
         model: VEO_MODEL,
         prompt,
         config: {
           aspectRatio,
-          personGeneration: 'allow_all',
+          personGeneration: 'allow_adult',
         },
-      });
+      };
+
+      // Add first-frame image if available (image → video)
+      if (hasFirstFrame) {
+        request.image = {
+          imageBytes: firstFrameImage.imageBytes.toString('base64'),
+          mimeType: firstFrameImage.mimeType,
+        };
+        console.log(`    First-frame: yes (${firstFrameImage.mimeType})`);
+      }
+
+      // Add character/subject reference images if available
+      if (hasRefs) {
+        request.config.referenceImages = characterRefs.map((ref) => ({
+          image: {
+            imageBytes: ref.imageBytes.toString('base64'),
+            mimeType: ref.mimeType,
+          },
+          referenceType: 'asset',
+        }));
+        console.log(`    Character refs: ${characterRefs.length}`);
+      }
+
+      let operation = await ai.models.generateVideos(request);
 
       const startMs = Date.now();
       while (!operation.done) {
@@ -173,6 +233,7 @@ async function generateSingleClip({
         file: `clip-${clipNum}.mp4`,
         duration: 8,
         scenes: [scene.scene_number],
+        imageGuided: hasFirstFrame || hasRefs,
       };
     } catch (err) {
       console.error(`    Attempt ${attempt} failed: ${err.message}`);
