@@ -309,17 +309,22 @@ Examples for a "design principles" post:
 
 ## Asset Placements
 
-If the workspace `assets/` folder contains brand images, reference them in `asset_placements`:
+**MANDATORY: You MUST check the workspace `assets/` folder before creating slides.json.** If ANY brand images exist there (logos, product shots, screenshots, etc.), you MUST include them in `asset_placements`. Users put files in that folder specifically so they appear in their content — never ignore them.
 
-| Usage | Description |
-|-------|-------------|
-| `watermark` | Small logo overlay in top-right, place on ALL slides |
-| `featured_image` | Prominent image on a content slide |
-| `background` | Full slide background replacement |
-| `cta_logo` | Large logo on the CTA slide |
+Run `ls <workspace-path>/assets/` and include every relevant file. Common patterns:
 
-For logo assets: place as `watermark` on all slides AND as `cta_logo` on the last slide.
-For product/screenshot assets: pick the most relevant content slide.
+| Usage | Description | When to use |
+|-------|-------------|-------------|
+| `watermark` | Small logo overlay in top-right, place on ALL slides | Logo file exists (`logo.png`, `logo.svg`, etc.) |
+| `featured_image` | Prominent image on a content slide | Product shots, screenshots, hero images |
+| `background` | Full slide background replacement | Brand backgrounds, patterns, textures |
+| `cta_logo` | Large logo on the CTA slide | Logo file exists — ALWAYS pair with watermark |
+
+**Rules:**
+- Logo → place as `watermark` on ALL slides AND as `cta_logo` on the last slide. Every single post should have the logo.
+- Product/screenshot images → pick the most relevant content slide as `featured_image`.
+- If multiple product images exist, spread them across different content slides.
+- If the assets folder is empty, omit `asset_placements` entirely — do not include an empty object.
 
 ## CTA Links
 

@@ -10,7 +10,7 @@
  * │  Per-format: instagram (4:5), tiktok (9:16)                    │
  * ├─────────────────────────────────────────────────────────────────┤
  * │  FLOW B: AI Video (video.json)                                 │
- * │  → AI text-to-video (Gemini Veo or Kling) → TTS → composite   │
+ * │  → AI text-to-video (Gemini Veo / Kling / Grok) → TTS → comp  │
  * │  ONE video output (9:16). Repost to TikTok/Reels/Shorts.      │
  * │  No slides.json needed. No backgrounds. No carousel.           │
  * └─────────────────────────────────────────────────────────────────┘
@@ -240,10 +240,11 @@ if (flowType === 'video') {
 
   // Check if reference images are enabled
   const refConfig = videoSpec.reference_images || {};
-  const refsEnabled = refConfig.enabled !== false && videoProvider === 'gemini';
+  const supportsRefs = videoProvider === 'gemini' || videoProvider === 'grok';
+  const refsEnabled = refConfig.enabled !== false && supportsRefs;
   if (refsEnabled) {
     console.log(`  Reference images: enabled (first-frames + character refs)`);
-  } else if (videoProvider === 'gemini') {
+  } else if (supportsRefs) {
     console.log(`  Reference images: disabled (set reference_images.enabled: true in video.json)`);
   }
 
@@ -256,7 +257,7 @@ if (flowType === 'video') {
     process.exit(0);
   }
 
-  // Step 0 (Gemini only): Generate reference images for visual consistency
+  // Step 0 (Gemini / Grok): Generate reference images for visual consistency
   if (refsEnabled) {
     run('generate-video-references.mjs');
   }

@@ -147,7 +147,7 @@ See [configuration.md](references/configuration.md) for all config fields and AP
 
 This is the most important question because it determines which flow to use:
 - **Carousel** → create `slides.json` → runs carousel pipeline (backgrounds, slides, render)
-- **AI Video** → create `video.json` → runs video pipeline (Gemini Veo or Kling text-to-video, TTS, composite)
+- **AI Video** → create `video.json` → runs video pipeline (Gemini Veo, Kling, or Grok text-to-video, TTS, composite)
 - **Both** → create both files, run both pipelines separately
 
 **CRITICAL: These are TWO COMPLETELY SEPARATE FLOWS.** AI Video does NOT need slides.json. Carousel does NOT need video.json. Never mix them up.
@@ -177,6 +177,29 @@ For **carousel**: this sets the slide template. For **AI video**: this sets the 
 **Smart question skipping:** If the user says "Create a TikTok AI video about productivity", questions 1 (AI Video), 2 (productivity, auto-generate) are already answered. Only ask questions 3 and 4. Use your judgment — the goal is efficiency, not rigidly asking every time.
 
 **IMPORTANT: For AI Video, the video is generated ONCE and reposted to all vertical platforms.** TikTok, Instagram Reels, and YouTube Shorts all use the same 9:16 format. Do NOT generate separate videos per platform. One video file works everywhere.
+
+### MANDATORY: Scan Assets Before Every Post
+
+**Before creating any content file (slides.json or video.json), ALWAYS scan the workspace `assets/` folder.** This is not optional — the agent must proactively inventory all available assets at the start of every post generation.
+
+```bash
+ls -la <workspace-path>/assets/
+```
+
+**What to look for:**
+- **Logo files** (`logo.png`, `logo.svg`, `logo.jpg`, `logo.webp`): Use as watermark on all carousel slides + CTA logo on last slide. For video flow, the logo can be referenced in the CTA end-card `visual_style` or passed as a character reference image for brand consistency.
+- **Product images** (`product-*.png`, `hero.png`, etc.): Use as `featured_image` on the most relevant content slide in carousels. For video flow, use as reference images to ensure the product appears accurately in AI-generated clips.
+- **Brand assets** (`banner.png`, `pattern.png`, `background-*.jpg`): Use as slide backgrounds or reference material for visual consistency.
+- **CTA video** (`cta-outro.mp4`): If present, the pipeline auto-appends it instead of generating a CTA frame.
+- **Any other images**: Consider how they relate to the post topic and use them where appropriate.
+
+**For carousel flow (slides.json):** Include `asset_placements` in slides.json mapping each relevant asset filename to slides and usage types (`watermark`, `featured_image`, `background`, `cta_logo`). Logo should go on ALL slides as watermark + CTA slide as `cta_logo`. Product/hero images go on the most relevant content slide as `featured_image`.
+
+**For video flow (video.json):** If the assets folder contains product shots, character photos, or logos that are relevant to the video content, use them as reference images. Either:
+1. Copy relevant assets into the post's `video-references/` folder and create a `manifest.json` pointing to them (as character references or first-frames)
+2. Or note them in the `reference_images.subject_description` so the generated references match the actual product/person
+
+**If the assets folder is empty or doesn't exist, continue normally** — the pipeline works fine without assets. But if assets ARE there, the agent MUST use them. Users put files in that folder specifically so they appear in their content.
 
 ### Step 1: Determine the output folder
 
@@ -222,7 +245,7 @@ Key content rules:
 - Last slide: type `cta`, compelling call to action with brand name
 - 5-7 slides for short carousels, up to 10 for detailed guides
 - Every slide needs a `background_prompt` for AI image generation -- just describe the scene, the pipeline automatically generates portrait images in the correct aspect ratio for the target format
-- If assets exist in the workspace `assets/` folder, include `asset_placements` mapping filenames to slides and usage types (watermark, featured_image, background, cta_logo)
+- **ALWAYS check the workspace `assets/` folder** (you should have already scanned it in the mandatory asset scan step above). If ANY assets exist, you MUST include `asset_placements` in slides.json mapping each relevant file to slides and usage types (watermark, featured_image, background, cta_logo). Logo goes on ALL slides as watermark + last slide as cta_logo.
 
 #### Option B: AI Video Flow → create `video.json`
 
@@ -230,7 +253,7 @@ Key content rules:
 
 **BEFORE writing video.json, read [video-content-guide.md](references/video-content-guide.md).** It contains content formats, hook patterns, tone rules, scene prompt rules, and a quality checklist. Following this guide is the difference between forgettable content and scroll-stopping content. Every AI video post MUST follow the guide.
 
-For AI-generated video posts with scene descriptions, voiceover narration, and subtitle compositing, compose `video.json`. This creates a standalone video (5 scenes + branded CTA end-card) using either Gemini Veo 3.1 or Kling text-to-video.
+For AI-generated video posts with scene descriptions, voiceover narration, and subtitle compositing, compose `video.json`. This creates a standalone video (5 scenes + branded CTA end-card) using Gemini Veo 3.1, Kling, or Grok Imagine Video text-to-video.
 
 **Schema:**
 
@@ -281,8 +304,8 @@ For AI-generated video posts with scene descriptions, voiceover narration, and s
 - `tts_provider`: **Do NOT set this field** — the pipeline reads `tts_provider` from `postgen.config.json` automatically. Only include this field if the user explicitly asks to override the config for this specific post. Valid values: `"openai"`, `"elevenlabs"`, `"gemini"`.
 - `visual_style`: **Strongly recommended.** A description of the consistent visual look applied to ALL scene prompts — color grading, lighting, camera style, and subject appearance (e.g. "Cinematic warm golden color grade, soft shadows. A confident man in his late 20s with short dark hair wearing a grey t-shirt. Smooth slow camera movements, shallow depth of field."). This gets automatically prepended to every scene prompt to ensure visual coherence across clips. Without this, each clip will have different actors, lighting, and styles. See [video-content-guide.md](references/video-content-guide.md) for detailed guidance.
 - `negative_prompt`: Text to exclude from generation (e.g. "blurry, watermark, low quality")
-- `reference_images`: Controls image-guided video generation for dramatically better visual consistency across clips. When enabled, the pipeline generates reference images BEFORE video generation and passes them to Veo 3.1 as first-frame images and character references. **Defaults:** If you omit this field entirely with Gemini provider, reference images are ENABLED by default (the pipeline will use `visual_style` as the subject description fallback). To explicitly disable, set `"reference_images": {"enabled": false}`. Fields:
-  - `enabled`: Boolean. **Defaults to `true` when provider is `"gemini"`**. Set `false` to use text-only mode. Ignored for Kling (Kling does not support reference images).
+- `reference_images`: Controls image-guided video generation for dramatically better visual consistency across clips. When enabled, the pipeline generates reference images BEFORE video generation and passes them to the provider as first-frame images and/or character references. Supported by **Gemini Veo** and **Grok Imagine Video**. **Defaults:** If you omit this field entirely with Gemini or Grok provider, reference images are ENABLED by default (the pipeline will use `visual_style` as the subject description fallback). To explicitly disable, set `"reference_images": {"enabled": false}`. Fields:
+  - `enabled`: Boolean. **Defaults to `true` when provider is `"gemini"` or `"grok"`**. Set `false` to use text-only mode. Ignored for Kling (Kling does not support reference images). **Grok note:** The Grok API cannot use first-frame and reference images on the same clip — when a first-frame is available for a scene it takes priority, otherwise character references are used.
   - `subject_description`: Detailed description (aim for 30-60 words) of the main character/subject appearing across scenes. Include: age, gender, ethnicity/skin tone, hair (color, length, style), clothing (specific items and colors), build/body type. This description is used to generate 9:16 reference photos that Veo uses to maintain character identity across clips. **If omitted, falls back to `visual_style`** — but a dedicated subject description produces much better character consistency. For product-only videos (no person), describe the product instead: `"A sleek matte-black wireless earbud case with rounded edges, silver hinge, and embossed logo. Studio lighting, white background."` Example for person: `"A confident South Asian man in his late 20s with short styled dark hair and a trimmed beard, wearing a fitted navy henley shirt. Athletic build, warm brown skin tone."`
   - `reference_count`: Number of character reference images to generate. Integer, 1-3. **Default: 3.** More refs = better consistency but more image API calls. Use 1 for fast iteration, 3 for final production.
 - `scenes`: Array of scene objects (up to 5 scenes), each with:
@@ -306,9 +329,9 @@ For AI-generated video posts with scene descriptions, voiceover narration, and s
 - Keep voiceover_text natural and conversational, not robotic or bullet-pointed
 - All scenes flow together as a cohesive video narrative, ending with the branded CTA
 
-**Image-guided video (Gemini Veo only):**
+**Image-guided video (Gemini Veo and Grok Imagine Video):**
 
-When `reference_images.enabled` is `true` (the default for Gemini), the pipeline runs an extra step BEFORE video generation. **You do NOT need to run `generate-video-references.mjs` manually — `generate-post.mjs` handles it automatically.** The reference image script is only listed in error recovery for manual retries.
+When `reference_images.enabled` is `true` (the default for Gemini and Grok), the pipeline runs an extra step BEFORE video generation. **You do NOT need to run `generate-video-references.mjs` manually — `generate-post.mjs` handles it automatically.** The reference image script is only listed in error recovery for manual retries.
 
 **How it works:**
 
@@ -350,7 +373,8 @@ Reference image generation is fault-tolerant. If some images fail:
 - If reference images produce the wrong subject appearance, update `subject_description` in video.json, delete `video-references/`, and re-run.
 
 **Important constraints:**
-- Reference images only work with Gemini Veo provider (Kling does not support them — they are silently skipped)
+- Reference images work with Gemini Veo and Grok Imagine Video providers (Kling does not support them — they are silently skipped)
+- Grok API constraint: `image` (first-frame) and `reference_images` cannot be combined on the same clip — first-frame takes priority when available
 - Max 3 character reference images per clip (Veo API limit)
 - Duration is fixed at 8s when using reference images (Veo's default — already what PostGen uses)
 - Reference images are generated in 9:16 portrait aspect ratio to match vertical video output
@@ -406,11 +430,11 @@ Caption format in `caption.txt`:
 {post-dir}/
   video.json                          ← content definition (scenes, cta, model)
   caption.txt                         ← social media caption + hashtags
-  video-references/                   ← reference images for image-guided generation (Gemini only)
+  video-references/                   ← reference images for image-guided generation (Gemini / Grok)
     ref-1.png, ref-2.png, ref-3.png  ← character reference photos (shared across clips)
     scene-1.png, scene-2.png, ...    ← first-frame images (one per scene)
     manifest.json                     ← reference image metadata
-  ai-video/                           ← AI video clips (Gemini Veo or Kling)
+  ai-video/                           ← AI video clips (Gemini Veo, Kling, or Grok)
     clip-1.mp4, clip-2.mp4, ...
     manifest.json                     ← clip metadata (includes image_guided flag)
   voiceover/                          ← TTS audio per scene
@@ -453,7 +477,7 @@ Override flags: `--skip-video`, `--skip-compress`, `--ai-video`, `--voiceover`, 
 
 #### Flow B: AI Video Pipeline (video.json)
 
-Runs: reference images (Gemini only) → AI video (Gemini Veo or Kling) → TTS voiceover → composite (AI clips + CTA + voiceover + subtitles).
+Runs: reference images (Gemini / Grok) → AI video (Gemini Veo, Kling, or Grok) → TTS voiceover → composite (AI clips + CTA + voiceover + subtitles).
 
 Takes **7-20 minutes** depending on the video provider, reference image generation, and number of scenes.
 
@@ -576,6 +600,7 @@ This checks slides.json, config, API key availability, and system dependencies. 
 | `generate-video-references.mjs` | Generate reference images for image-guided video (character refs + first-frames) |
 | `generate-ai-video.mjs` | AI video dispatcher: resolves provider, loads reference images, delegates to providers/ |
 | `providers/gemini-video.mjs` | Gemini Veo 3.1 video (8s clips, supports first-frame + character reference images) |
+| `providers/grok-video.mjs` | Grok Imagine Video (8s clips, supports first-frame OR character reference images) |
 | `providers/kling-video.mjs` | Kling text-to-video (10s clips, JWT auth) |
 | `composite-video.mjs` | Final video: stitch AI clips + voiceover audio + burned-in subtitles |
 | `kling-client.mjs` | Kling API client: JWT auth, createTextToVideo, waitForTextToVideo, polling, download |

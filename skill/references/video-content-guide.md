@@ -160,12 +160,40 @@ The `subject_description` is used to generate the character reference photos. It
 
 **Constraints and notes:**
 - Max 3 character reference images per clip (Veo API limit)
-- Only works with Gemini Veo provider (Kling and Grok do not support reference images — silently skipped)
+- Works with Gemini Veo and Grok Imagine Video providers (Kling does not support reference images — silently skipped)
+- Grok API constraint: cannot use first-frame (`image`) and reference images (`reference_images`) on the same clip. When a first-frame is available for a scene, it takes priority; otherwise character references are used.
 - Duration is fixed at 8s when using reference images (which is Veo's default)
 - Reference images are generated in 9:16 aspect ratio to match video output
 - Adds ~2-4 minutes to the pipeline (3-8 extra image API calls depending on scene count + reference_count)
 - `personGeneration` is set to `"allow_adult"` for regional compliance — minors cannot be generated
 - The pipeline handles reference images automatically via `generate-post.mjs` — do NOT run `generate-video-references.mjs` manually unless retrying after a failure
+
+### Using Workspace Assets in Video
+
+**ALWAYS check the workspace `assets/` folder before creating video.json.** If the user has placed logos, product shots, headshots, or any brand images there, you MUST incorporate them into the video where appropriate. Users put files in that folder specifically so they appear in their content.
+
+**How to use assets in video flow:**
+
+- **Logo** (`logo.png`, `logo.svg`, etc.): Mention the logo in the CTA end-card description or `visual_style` so the AI knows to reference brand imagery. If the brand has a logo in assets, the CTA should feel on-brand.
+- **Product shots** (`product-*.png`, `hero.png`, etc.): Use as reference images. Copy relevant product images into the post's `video-references/` folder and include them in the manifest as character references (`character_references`). This way the AI video model generates clips that feature the ACTUAL product, not a hallucinated version.
+- **Person/headshot** (`headshot.png`, `founder.png`, `model-*.jpg`, etc.): Use as character reference images for visual consistency. Copy into `video-references/` and include in manifest. Much better than relying purely on `subject_description` text — the model can see what the person actually looks like.
+- **Scene-specific images**: If an asset is relevant to a specific scene (e.g. a before/after photo, a screenshot, a product in use), use it as a first-frame image for that scene.
+
+**Example: Using a product image as reference**
+```bash
+# Copy the product image into the post's video-references folder
+cp <workspace>/assets/product-hero.png <post-dir>/video-references/ref-1.png
+```
+Then in `video-references/manifest.json`:
+```json
+{
+  "character_references": [
+    { "file": "ref-1.png", "exists": true, "description": "Product hero shot from brand assets" }
+  ]
+}
+```
+
+This gives the video model an actual image of the product to work with, producing much more accurate and on-brand clips than text descriptions alone.
 
 This ensures the same person, same lighting, and same color palette across all 5 scenes.
 

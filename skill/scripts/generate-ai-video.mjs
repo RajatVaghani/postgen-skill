@@ -143,11 +143,11 @@ if (provider === 'gemini') {
 }
 
 // ---------------------------------------------------------------------------
-// Load reference images (if available, Gemini only)
+// Load reference images (if available — Gemini and Grok)
 // ---------------------------------------------------------------------------
 
 function loadReferenceData() {
-  if (provider !== 'gemini' || noRefs) return {};
+  if ((provider !== 'gemini' && provider !== 'grok') || noRefs) return {};
 
   const refDir = path.join(postDir, 'video-references');
   const manifestPath = path.join(refDir, 'manifest.json');
@@ -251,8 +251,8 @@ const generateArgs = {
   },
 };
 
-// Pass reference data to Gemini provider
-if (provider === 'gemini' && hasRefs) {
+// Pass reference data to Gemini and Grok providers
+if ((provider === 'gemini' || provider === 'grok') && hasRefs) {
   generateArgs.referenceData = referenceData;
 }
 

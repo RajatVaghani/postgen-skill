@@ -6,6 +6,17 @@
  * (configurable 1–15s). Supports retry with exponential backoff and
  * controlled concurrency.
  *
+ * Image-guided modes (mutually exclusive per clip — Grok API constraint):
+ *   1. First-frame image: Sets the starting frame for a clip (image → video)
+ *      via the `image` field. Takes priority when available for a scene.
+ *   2. Reference images: Up to 3 character/subject reference images shared
+ *      across clips via the `reference_images` field. Used when no
+ *      first-frame is available for a given scene.
+ *   3. Text-only: Falls back to pure text-to-video when no images exist.
+ *
+ * NOTE: The Grok API returns 400 if you send both `image` AND
+ * `reference_images` in the same request — only one can be used per clip.
+ *
  * API reference: https://docs.x.ai/developers/model-capabilities/video/generation
  *
  * Exports a single function: generateClips()
@@ -29,9 +40,12 @@ const DEFAULT_CLIP_DURATION = 8;
  * @param {object} params.videoSpec      Parsed video.json
  * @param {object} params.credentials    { key } — the xAI API key
  * @param {object} params.options        { aspectRatio, concurrency, maxRetries }
+ * @param {object} params.referenceData  Optional. { firstFrames, characterRefs }
+ *   - firstFrames: Map<sceneNumber, { imageBytes: Buffer, mimeType: string }>
+ *   - characterRefs: Array<{ imageBytes: Buffer, mimeType: string }> (max 3)
  * @returns {{ clips: Array, errors: Array }}
  */
-export async function generateClips({ postDir, videoSpec, credentials, options = {} }) {
+export async function generateClips({ postDir, videoSpec, credentials, options = {}, referenceData = {} }) {
   const {
     aspectRatio = '9:16',
     concurrency = 2,
@@ -44,10 +58,30 @@ export async function generateClips({ postDir, videoSpec, credentials, options =
   const outputDir = path.join(postDir, 'ai-video');
   if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
 
+  // Determine image-guided mode
+  const { firstFrames = new Map(), characterRefs = [] } = referenceData;
+  const hasFirstFrames = firstFrames.size > 0;
+  const hasCharRefs = characterRefs.length > 0;
+
+  // Pre-convert character reference images to base64 data URIs (shared across clips)
+  const charRefDataUris = hasCharRefs
+    ? characterRefs.slice(0, 3).map((ref) => bufferToDataUri(ref.imageBytes, ref.mimeType))
+    : [];
+
+  const modeLabel = hasFirstFrames && hasCharRefs
+    ? 'image-guided (first-frame preferred, character refs fallback)'
+    : hasFirstFrames
+      ? 'image-guided (first-frame only)'
+      : hasCharRefs
+        ? 'image-guided (character references only)'
+        : 'text-to-video';
+
   console.log(`  Provider: Grok Imagine Video (${GROK_MODEL})`);
-  console.log(`  Mode: text-to-video`);
+  console.log(`  Mode: ${modeLabel}`);
   console.log(`  Clip duration: ${DEFAULT_CLIP_DURATION}s per scene`);
   console.log(`  Scenes: ${scenes.length}`);
+  if (hasFirstFrames) console.log(`  First-frame images: ${firstFrames.size}`);
+  if (hasCharRefs) console.log(`  Character references: ${charRefDataUris.length}`);
   console.log(`  Concurrency: ${concurrency}`);
   console.log();
 
@@ -90,6 +124,8 @@ export async function generateClips({ postDir, videoSpec, credentials, options =
         negativePrompt,
         visualStyle,
         maxRetries,
+        firstFrameImage: firstFrames.get(scene.scene_number) || null,
+        charRefDataUris,
       })
         .then((result) => { results[idx] = result; })
         .catch((err) => {
@@ -118,6 +154,7 @@ export async function generateClips({ postDir, videoSpec, credentials, options =
 async function generateSingleClip({
   scene, clipIndex, totalClips, outputDir, apiKey,
   aspectRatio, negativePrompt, visualStyle, maxRetries,
+  firstFrameImage, charRefDataUris,
 }) {
   const clipNum = clipIndex + 1;
   // Build prompt: visual_style prefix + scene prompt + negative prompt suffix
@@ -125,12 +162,23 @@ async function generateSingleClip({
   if (visualStyle) prompt = `${visualStyle}. ${prompt}`;
   if (negativePrompt) prompt = `${prompt}. Avoid: ${negativePrompt}`;
 
+  // Determine which image mode to use for this clip.
+  // Grok API constraint: cannot send both `image` and `reference_images`
+  // in the same request — 400 error. Priority: first-frame > char refs.
+  const hasFirstFrame = !!firstFrameImage;
+  const hasRefs = charRefDataUris && charRefDataUris.length > 0;
+
   for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
     try {
-      console.log(`  [clip ${clipNum}/${totalClips}] Scene ${scene.scene_number} (attempt ${attempt})...`);
+      const modeStr = hasFirstFrame
+        ? '(first-frame)'
+        : hasRefs
+          ? `(${charRefDataUris.length} ref images)`
+          : '(text-only)';
+      console.log(`  [clip ${clipNum}/${totalClips}] Scene ${scene.scene_number} ${modeStr} (attempt ${attempt})...`);
       console.log(`    Prompt: "${scene.prompt.slice(0, 70)}..."`);
 
-      // Submit generation request
+      // Build the request body
       const requestBody = {
         model: GROK_MODEL,
         prompt,
@@ -138,6 +186,17 @@ async function generateSingleClip({
         aspect_ratio: aspectRatio,
         resolution: '720p',
       };
+
+      if (hasFirstFrame) {
+        // Image-to-video: first-frame takes priority
+        const dataUri = bufferToDataUri(firstFrameImage.imageBytes, firstFrameImage.mimeType);
+        requestBody.image = { url: dataUri };
+        console.log(`    First-frame: yes (${firstFrameImage.mimeType})`);
+      } else if (hasRefs) {
+        // Character/subject references (when no first-frame for this scene)
+        requestBody.reference_images = charRefDataUris.map((uri) => ({ url: uri }));
+        console.log(`    Reference images: ${charRefDataUris.length}`);
+      }
 
       const submitResult = await grokApiPost('/videos/generations', requestBody, apiKey);
       const requestId = submitResult.request_id;
@@ -165,6 +224,7 @@ async function generateSingleClip({
         duration,
         scenes: [scene.scene_number],
         grokRequestId: requestId,
+        imageGuided: hasFirstFrame || hasRefs,
       };
     } catch (err) {
       console.error(`    Attempt ${attempt} failed: ${err.message}`);
@@ -350,6 +410,16 @@ function downloadFile(url, destPath) {
 // ---------------------------------------------------------------------------
 // Utility
 // ---------------------------------------------------------------------------
+
+/**
+ * Convert a Buffer + mimeType to a base64 data URI.
+ * Grok API accepts data URIs like `data:image/png;base64,...` for both
+ * the `image` field and `reference_images[].url` field.
+ */
+function bufferToDataUri(buffer, mimeType) {
+  const base64 = buffer.toString('base64');
+  return `data:${mimeType};base64,${base64}`;
+}
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
