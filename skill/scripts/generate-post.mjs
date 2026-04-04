@@ -192,20 +192,24 @@ if (flowType === 'video') {
     process.exit(1);
   }
 
-  // Resolve video provider: video.json → config → auto-detect (Gemini first, then Kling)
+  // Resolve video provider: video.json → config → auto-detect (Gemini first, then Kling, then Grok)
   const explicitProvider = videoSpec.video_provider || config.video_provider || '';
   const geminiCreds = resolveVideoKey('gemini-video', config);
   const klingCreds = resolveVideoKey('kling', config);
+  const grokCreds = resolveVideoKey('grok', config);
 
   let videoProvider;
   if (explicitProvider === 'gemini' && geminiCreds) videoProvider = 'gemini';
   else if (explicitProvider === 'kling' && klingCreds) videoProvider = 'kling';
+  else if (explicitProvider === 'grok' && grokCreds) videoProvider = 'grok';
   else if (!explicitProvider && geminiCreds) videoProvider = 'gemini';
   else if (!explicitProvider && klingCreds) videoProvider = 'kling';
+  else if (!explicitProvider && grokCreds) videoProvider = 'grok';
 
   if (!videoProvider) {
     console.error('FATAL: No video provider credentials found.');
-    console.error('  Set GEMINI_API_KEY (for Gemini Veo) or KLING_ACCESS_KEY + KLING_SECRET_KEY (for Kling).');
+    console.error('  Set GEMINI_API_KEY (for Gemini Veo), KLING_ACCESS_KEY + KLING_SECRET_KEY (for Kling),');
+    console.error('  or XAI_API_KEY (for Grok Imagine Video).');
     process.exit(1);
   }
 
@@ -216,13 +220,14 @@ if (flowType === 'video') {
 
   // Print plan
   const sceneCount = videoSpec.scenes?.length || 0;
-  const clipDur = videoProvider === 'gemini' ? 8 : 10;
+  const clipDur = videoProvider === 'kling' ? 10 : 8;
   const estDuration = sceneCount * clipDur;
   const hasCta = !!videoSpec.cta;
 
   console.log('Flow: AI VIDEO (video.json)');
   console.log(`  Scenes: ${sceneCount} (~${estDuration}s AI video${hasCta ? ' + 5s CTA' : ''})`);
-  console.log(`  Video provider: ${videoProvider}${videoProvider === 'gemini' ? ' (Veo 3.1)' : ' (Kling)'}`);
+  const providerLabel = videoProvider === 'gemini' ? ' (Veo 3.1)' : videoProvider === 'grok' ? ' (Imagine Video)' : ' (Kling)';
+  console.log(`  Video provider: ${videoProvider}${providerLabel}`);
   console.log(`  Aspect ratio: ${videoSpec.aspect_ratio || '9:16'}`);
   console.log(`  Voiceover: ${hasVoiceoverEnabled && hasTTS ? (vTtsProvider || 'auto-detect') : 'off'}`);
   console.log(`  CTA end-card: ${hasCta ? `"${videoSpec.cta.title}"` : 'none'}`);

@@ -34,6 +34,7 @@ Located at the root of the workspace path. Created by `scripts/setup.mjs`.
   "openai_api_key": "optional-fallback-key",
   "kling_access_key": "optional-kling-access-key",
   "kling_secret_key": "optional-kling-secret-key",
+  "xai_api_key": "optional-xai-api-key",
   "elevenlabs_api_key": "optional-elevenlabs-key"
 }
 ```
@@ -56,12 +57,13 @@ Located at the root of the workspace path. Created by `scripts/setup.mjs`.
 | `defaults.formats` | No | Array of output formats: `"instagram"` (4:5), `"tiktok"` (9:16). Legacy alias `"shorts"` also accepted. |
 | `defaults.output_type` | No | Default output type: `"image"` (PNG only), `"video"` (PNG + MP4), or `"both"` (default). Can be overridden per post in slides.json. |
 | `defaults.template` | No | Default template: `"bold"`, `"minimal"`, `"magazine"`, `"neon"`, `"stack"`, or `"clean"` |
-| `video_provider` | No | Preferred video provider: `"gemini"` (Veo 3.1, 8s clips) or `"kling"` (10s clips). Auto-detected if omitted (tries Gemini first). Can also be set per-post in video.json. |
+| `video_provider` | No | Preferred video provider: `"gemini"` (Veo 3.1, 8s clips), `"kling"` (10s clips), or `"grok"` (Grok Imagine Video, 8s clips). Auto-detected if omitted (tries Gemini → Kling → Grok). Can also be set per-post in video.json. |
 | `tts_provider` | No | Preferred TTS provider: `"openai"`, `"elevenlabs"`, or `"gemini"`. Auto-detected if omitted (tries OpenAI → ElevenLabs → Gemini). |
 | `gemini_api_key` | No | Fallback API key for Google GenAI |
 | `openai_api_key` | No | Fallback API key for OpenAI (also used for OpenAI TTS) |
 | `kling_access_key` | No | Kling AI access key (for AI video + Kling TTS) |
 | `kling_secret_key` | No | Kling AI secret key (paired with access key for JWT auth) |
+| `xai_api_key` | No | xAI API key (for Grok Imagine Video generation) |
 | `elevenlabs_api_key` | No | ElevenLabs API key (for premium TTS voiceover) |
 
 ## API Key Resolution

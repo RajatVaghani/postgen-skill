@@ -88,14 +88,17 @@ if (!provider) {
 
 const geminiVideoCreds = resolveVideoKey('gemini-video', config);
 const klingCreds = resolveVideoKey('kling', config);
+const grokCreds = resolveVideoKey('grok', config);
 const configVideoProvider = config.video_provider || '';
 
 if (configVideoProvider === 'gemini' && !geminiVideoCreds) {
   issue('video_provider is "gemini" but no Gemini API key found');
 } else if (configVideoProvider === 'kling' && !klingCreds) {
   issue('video_provider is "kling" but no Kling credentials found');
-} else if (!geminiVideoCreds && !klingCreds) {
-  warn('No video provider credentials found — AI video generation will not work. Add GEMINI_API_KEY or KLING_ACCESS_KEY + KLING_SECRET_KEY');
+} else if (configVideoProvider === 'grok' && !grokCreds) {
+  issue('video_provider is "grok" but no xAI API key found');
+} else if (!geminiVideoCreds && !klingCreds && !grokCreds) {
+  warn('No video provider credentials found — AI video generation will not work. Add GEMINI_API_KEY, KLING_ACCESS_KEY + KLING_SECRET_KEY, or XAI_API_KEY');
 }
 
 // ---------------------------------------------------------------------------

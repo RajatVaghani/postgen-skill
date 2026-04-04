@@ -2,7 +2,7 @@
 /**
  * PostGen – Generate AI video clips from scene descriptions.
  *
- * Thin dispatcher that resolves the video provider (Gemini Veo or Kling)
+ * Thin dispatcher that resolves the video provider (Gemini Veo, Kling, or Grok)
  * and delegates clip generation to the appropriate provider module.
  *
  * When reference images exist in {post-dir}/video-references/, they are
@@ -10,7 +10,7 @@
  * image-guided video generation (first-frame + character references).
  *
  * Usage:
- *   node generate-ai-video.mjs <post-dir> [--provider gemini|kling]
+ *   node generate-ai-video.mjs <post-dir> [--provider gemini|kling|grok]
  *                                          [--model kling-v3]
  *                                          [--mode std|pro]
  *                                          [--aspect-ratio 9:16|16:9|1:1]
@@ -98,16 +98,18 @@ function resolveProvider() {
   if (videoSpec.video_provider) return videoSpec.video_provider;
   // 3. Config field
   if (config.video_provider) return config.video_provider;
-  // 4. Auto-detect: Gemini first, then Kling
+  // 4. Auto-detect: Gemini first, then Kling, then Grok
   if (resolveVideoKey('gemini-video', config)) return 'gemini';
   if (resolveVideoKey('kling', config)) return 'kling';
+  if (resolveVideoKey('grok', config)) return 'grok';
   return null;
 }
 
 const provider = resolveProvider();
 if (!provider) {
   console.error('FATAL: No video provider credentials found.');
-  console.error('  Set GEMINI_API_KEY (for Gemini Veo) or KLING_ACCESS_KEY + KLING_SECRET_KEY (for Kling).');
+  console.error('  Set GEMINI_API_KEY (for Gemini Veo), KLING_ACCESS_KEY + KLING_SECRET_KEY (for Kling),');
+  console.error('  or XAI_API_KEY (for Grok Imagine Video).');
   console.error('  Or set video_provider in postgen.config.json or video.json.');
   process.exit(1);
 }
@@ -128,8 +130,15 @@ if (provider === 'gemini') {
     console.error('  or KLING_ACCESS_KEY + KLING_SECRET_KEY env vars.');
     process.exit(1);
   }
+} else if (provider === 'grok') {
+  credentials = resolveVideoKey('grok', config);
+  if (!credentials) {
+    console.error('FATAL: Grok (xAI) API key not found for video generation.');
+    console.error('  Set XAI_API_KEY env var or xai_api_key in postgen.config.json.');
+    process.exit(1);
+  }
 } else {
-  console.error(`FATAL: Unknown video provider "${provider}". Must be "gemini" or "kling".`);
+  console.error(`FATAL: Unknown video provider "${provider}". Must be "gemini", "kling", or "grok".`);
   process.exit(1);
 }
 
@@ -203,7 +212,7 @@ const referenceData = loadReferenceData();
 // Log plan
 // ---------------------------------------------------------------------------
 
-const clipDuration = provider === 'gemini' ? 8 : 10;
+const clipDuration = provider === 'kling' ? 10 : 8; // Gemini=8s, Kling=10s, Grok=8s
 const totalDuration = scenes.length * clipDuration;
 const hasRefs = (referenceData.firstFrames?.size > 0) || (referenceData.characterRefs?.length > 0);
 
@@ -221,9 +230,13 @@ console.log();
 
 const startTime = Date.now();
 
-const providerModule = provider === 'gemini'
-  ? await import(path.join(__dirname, 'providers', 'gemini-video.mjs'))
-  : await import(path.join(__dirname, 'providers', 'kling-video.mjs'));
+const providerModulePath = provider === 'gemini'
+  ? path.join(__dirname, 'providers', 'gemini-video.mjs')
+  : provider === 'grok'
+    ? path.join(__dirname, 'providers', 'grok-video.mjs')
+    : path.join(__dirname, 'providers', 'kling-video.mjs');
+
+const providerModule = await import(providerModulePath);
 
 const generateArgs = {
   postDir,
@@ -255,7 +268,9 @@ if (!fs.existsSync(videoDir)) fs.mkdirSync(videoDir, { recursive: true });
 const manifest = {
   provider,
   type: hasRefs ? 'image-guided-video' : 'text-to-video',
-  model: provider === 'gemini' ? 'veo-3.1-generate-preview' : (modelName || videoSpec.model || 'kling-v3'),
+  model: provider === 'gemini' ? 'veo-3.1-generate-preview'
+       : provider === 'grok' ? 'grok-imagine-video'
+       : (modelName || videoSpec.model || 'kling-v3'),
   mode: mode || videoSpec.mode || 'std',
   aspect_ratio: aspectRatio,
   image_guided: hasRefs,

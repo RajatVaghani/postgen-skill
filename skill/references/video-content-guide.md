@@ -160,7 +160,7 @@ The `subject_description` is used to generate the character reference photos. It
 
 **Constraints and notes:**
 - Max 3 character reference images per clip (Veo API limit)
-- Only works with Gemini Veo provider (Kling does not support reference images — silently skipped)
+- Only works with Gemini Veo provider (Kling and Grok do not support reference images — silently skipped)
 - Duration is fixed at 8s when using reference images (which is Veo's default)
 - Reference images are generated in 9:16 aspect ratio to match video output
 - Adds ~2-4 minutes to the pipeline (3-8 extra image API calls depending on scene count + reference_count)
@@ -229,5 +229,5 @@ Before finalizing `video.json`, verify:
 6. **Scene variety:** Are the scene prompts varied in LOCATION and ACTION? (not all "person at desk" — mix close-ups, wide shots, different settings). The `visual_style` and reference images handle consistency; scene prompts handle variety.
 6. **Flow:** Do the scenes progress logically? Hook → develop → evidence/story → conclusion → CTA
 7. **Brand safety:** Zero text/logos/brand names in scene prompts. Brand mentions only in voiceover_text and CTA.
-7. **Scene count:** 5 scenes + CTA end-card. Clip duration is fixed per provider (8s Gemini, 10s Kling).
-8. **Voiceover pacing:** Match word count to clip duration (~3 words/sec). Kling (10s): ~25-30 words/scene, ~125-150 total. Gemini Veo (8s): ~20-24 words/scene, ~100-120 total. Too few = draggy slow speech. Too many = rushed.
+7. **Scene count:** 5 scenes + CTA end-card. Clip duration is fixed per provider (8s Gemini, 10s Kling, 8s Grok).
+8. **Voiceover pacing:** Match word count to clip duration (~3 words/sec). Kling (10s): ~25-30 words/scene, ~125-150 total. Gemini Veo / Grok (8s): ~20-24 words/scene, ~100-120 total. Too few = draggy slow speech. Too many = rushed.

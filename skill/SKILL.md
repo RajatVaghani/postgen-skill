@@ -273,7 +273,7 @@ For AI-generated video posts with scene descriptions, voiceover narration, and s
 **Key fields:**
 
 - `topic`: Brief description of the video's subject
-- `video_provider`: `"gemini"` (Veo 3.1, 8s clips) or `"kling"` (Kling, 10s clips). Omit to auto-detect from available credentials (tries Gemini first, then Kling).
+- `video_provider`: `"gemini"` (Veo 3.1, 8s clips), `"kling"` (Kling, 10s clips), or `"grok"` (Grok Imagine Video, 8s clips). Omit to auto-detect from available credentials (tries Gemini → Kling → Grok).
 - `aspect_ratio`: `"9:16"` for TikTok/Reels/Shorts, `"16:9"` for YouTube, `"1:1"` for Instagram Feed
 - `mode`: `"std"` (standard quality) or `"pro"` (higher quality, longer processing — Kling only)
 - `template`: Template for the CTA end-card: `"bold"`, `"neon"`, `"minimal"`, `"clean"`, `"stack"`, or `"magazine"`. Uses the same branded slide renderer as carousels.
@@ -511,7 +511,7 @@ node <skill-path>/scripts/render-slides.mjs <post-dir> [--format instagram|tikto
 node <skill-path>/scripts/generate-video.mjs <post-dir> [--format instagram|tiktok]
 node <skill-path>/scripts/generate-tts.mjs <post-dir> [--provider openai|elevenlabs|gemini] [--voice <voice-id>]
 node <skill-path>/scripts/generate-video-references.mjs <post-dir>
-node <skill-path>/scripts/generate-ai-video.mjs <post-dir> [--provider gemini|kling] [--mode std|pro] [--no-refs]
+node <skill-path>/scripts/generate-ai-video.mjs <post-dir> [--provider gemini|kling|grok] [--mode std|pro] [--no-refs]
   # --no-refs: Skip loading reference images, use text-only video generation even if reference images exist.
   #            Overrides video.json reference_images setting. Use for faster iteration or if refs are corrupt.
 node <skill-path>/scripts/composite-video.mjs <post-dir> [--format tiktok] [--subtitle-style bold|minimal|karaoke]
@@ -608,7 +608,12 @@ Two providers are supported — only one is needed:
 2. Environment variables: `KLING_ACCESS_KEY` + `KLING_SECRET_KEY`
 3. `~/.openclaw/openclaw.json` → same env var names
 
-When both are available and no explicit `video_provider` is set, Gemini is used by default (same key as image generation = simpler setup).
+**Grok** (xAI):
+1. `postgen.config.json` → `xai_api_key` (or `grok_api_key`)
+2. Environment variables: `XAI_API_KEY` (or `GROK_API_KEY`)
+3. `~/.openclaw/openclaw.json` → same env var names
+
+When multiple providers are available and no explicit `video_provider` is set, Gemini is used by default (same key as image generation = simpler setup).
 
 ### TTS Keys
 
@@ -619,7 +624,7 @@ Found automatically (order: config → env → OpenClaw):
 
 Gemini TTS reuses the same `GEMINI_API_KEY` as image/video generation — no extra credentials needed.
 
-If no keys are found, ask the user to provide them. For AI video, at minimum they need one video provider (Gemini or Kling) and any one TTS provider.
+If no keys are found, ask the user to provide them. For AI video, at minimum they need one video provider (Gemini, Kling, or Grok) and any one TTS provider.
 
 **Security note:** Prefer environment variables or the OpenClaw config over storing keys in `postgen.config.json`. The workspace `.gitignore` is configured to remind about this.
 
@@ -634,8 +639,9 @@ Set via `image_provider` in `postgen.config.json`.
 ### AI Video (Text-to-Video)
 - **gemini**: Google Veo 3.1 text-to-video. Generates 8s clips per scene. Uses the same `GEMINI_API_KEY` as image generation — no extra credentials needed. Auto-detected as default when available.
 - **kling**: Kling AI (Kuaishou) text-to-video. Generates 10s clips per scene. Requires `kling_access_key` + `kling_secret_key`.
+- **grok**: xAI Grok Imagine Video text-to-video. Generates 8s clips per scene (configurable 1–15s). Uses `XAI_API_KEY`. Supports 480p and 720p resolution.
 
-Set via `video_provider` in `video.json` or `postgen.config.json`. Auto-detected if omitted (tries Gemini first, then Kling).
+Set via `video_provider` in `video.json` or `postgen.config.json`. Auto-detected if omitted (tries Gemini → Kling → Grok).
 
 ### TTS (Voiceover)
 - **openai**: OpenAI TTS (gpt-4o-mini-tts), uses `OPENAI_API_KEY`. Voices: alloy, echo, fable, onyx, nova (default), shimmer.

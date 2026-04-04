@@ -44,6 +44,11 @@ const VIDEO_PROVIDERS = {
     envKeys: ['GEMINI_API_KEY', 'GOOGLE_GENAI_API_KEY'],
     openclawKeys: ['GEMINI_API_KEY', 'GOOGLE_GENAI_API_KEY'],
   },
+  grok: {
+    configKeys: ['xai_api_key', 'grok_api_key'],
+    envKeys: ['XAI_API_KEY', 'GROK_API_KEY'],
+    openclawKeys: ['XAI_API_KEY', 'GROK_API_KEY'],
+  },
   'gemini-tts': {
     configKeys: ['gemini_api_key', 'google_genai_api_key'],
     envKeys: ['GEMINI_API_KEY', 'GOOGLE_GENAI_API_KEY'],
