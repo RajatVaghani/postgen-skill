@@ -7,7 +7,7 @@
  * right template module, and writes the HTML files.
  *
  * Usage:
- *   node build-slides.mjs <post-dir> [--format instagram|tiktok] [--template bold|minimal|magazine|neon|stack|clean]
+ *   node build-slides.mjs <post-dir> [--format instagram|tiktok] [--template bold|minimal|magazine|neon|stack|clean|caption]
  */
 import fs from 'fs';
 import path from 'path';
@@ -21,6 +21,7 @@ import * as magazineTmpl from './templates/magazine.mjs';
 import * as neonTmpl from './templates/neon.mjs';
 import * as stackTmpl from './templates/stack.mjs';
 import * as cleanTmpl from './templates/clean.mjs';
+import * as captionTmpl from './templates/caption.mjs';
 
 // ---------------------------------------------------------------------------
 // Template registry
@@ -33,6 +34,7 @@ const TEMPLATES = {
   neon:     neonTmpl,
   stack:    stackTmpl,
   clean:    cleanTmpl,
+  caption:  captionTmpl,
 };
 
 const VALID_TEMPLATES = Object.keys(TEMPLATES);

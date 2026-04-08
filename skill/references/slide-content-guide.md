@@ -94,7 +94,7 @@ How to compose `slides.json` for the PostGen pipeline.
 |-------|----------|-------------|
 | `output_type` | Yes | `"image"` (PNG carousel only), `"video"` (PNG + MP4), or `"both"` (default). Set based on user's answer to the format question. |
 | `formats` | Yes | Array of format names: `"instagram"` (1080x1350, 4:5) and/or `"tiktok"` (1080x1920, 9:16). Set based on user's answer to the platform question. |
-| `template` | **Yes** | `"bold"`, `"minimal"`, `"magazine"`, `"neon"`, `"stack"`, `"clean"`, or `"auto"`. **Always set this field.** Use the user's choice from Question 5, or `"auto"` if they said "Surprise me". When set to `"auto"`, the pipeline scans previous posts and picks a template that avoids the last 2 used. |
+| `template` | **Yes** | `"bold"`, `"minimal"`, `"magazine"`, `"neon"`, `"stack"`, `"clean"`, `"caption"`, or `"auto"`. **Always set this field.** Use the user's choice from Question 5, or `"auto"` if they said "Surprise me". When set to `"auto"`, the pipeline scans previous posts and picks a template that avoids the last 2 used. |
 | `ai_video` | No | `true` to enable Kling AI video generation (image-to-video per slide). Requires Kling credentials. |
 | `voiceover` | No | `true` to enable TTS voiceover narration. Auto-enabled for video when TTS credentials exist. |
 | `tts_provider` | No | Override TTS provider: `"openai"` or `"elevenlabs"`. Auto-detected if omitted (tries OpenAI first). |
@@ -171,6 +171,15 @@ How to compose `slides.json` for the PostGen pipeline.
 - CTA uses an underlined text link instead of a button or box
 - Best for: Luxury brands, minimalist aesthetics, art, architecture, fashion, premium services
 
+### Caption Template (`"caption"`)
+- Text placed directly on vivid, unprocessed background photos — NO overlays, NO blur, NO cards
+- Heavy multi-layer text-shadow for legibility against any image
+- No step numbers, no counters, no accent lines, no decorations — just text on image
+- Organic, UGC-native social media feel (like viral TikTok/Reels text posts)
+- Background images are the hero — shown at full quality with no CSS filtering
+- CTA uses a solid white button with dark text for maximum contrast
+- Best for: Home improvement, DIY, relatable/personal stories, life hacks, real estate, before/after content, viral hooks
+
 ## Background Prompt Patterns
 
 All backgrounds are generated in **portrait orientation** automatically by the pipeline (the API enforces the correct aspect ratio based on the target format). You do NOT need to specify aspect ratio or orientation in the prompt — just focus on the scene description.
@@ -185,6 +194,7 @@ All backgrounds are generated in **portrait orientation** automatically by the p
    - **Magazine**: Dark/moody scenes — the heavy blur and overlay mean almost any dark image works
    - **Stack**: Vibrant, detailed scenes — this template shows MORE of the background with less filtering
    - **Clean**: Any scene works — the duotone color wash unifies the look — but avoid cluttered compositions
+   - **Caption**: Vivid, high-quality photos — NO processing applied, so image quality and composition matter most. Ensure the center of the image has a consistent-tone area for text legibility
 4. **Be specific and concrete.** "A beautiful background" produces garbage. "Close-up of raindrops on a dark glass window, reflecting violet and indigo neon signs" produces something usable.
 
 ### Prompt structure
@@ -297,6 +307,21 @@ Examples for a "design principles" post:
 - Hook slide: "Minimal architectural detail of a white concrete staircase with clean geometric shadows, neutral tones, architectural photography style, calm contemplative mood, no text, no letters, no words, no watermark, high quality, soft focus on details"
 - Content slide: "Close-up of smooth marble surface with subtle veining, single green plant leaf resting on it, clean neutral palette, still life photography, refined sophisticated atmosphere, no text, no letters, no words, no watermark, high quality, soft focus"
 - CTA slide: "Abstract smooth gradient in soft neutral tones with subtle paper texture, minimalist illustration style, elegant calm mood, no text, no letters, no words, no watermark, high quality"
+
+### Caption template prompts
+
+Caption shows the raw background at full quality — no blur, no overlay, no dimming. The text relies entirely on heavy text-shadow for legibility, so backgrounds must cooperate: **vivid, high-quality photos with areas of consistent tone** where text can land cleanly.
+
+**DO:** Vivid real-world photos, strong subjects, good color saturation, scenes with a large area of consistent mid-to-dark tone in the center (where text sits), lifestyle and relatable imagery
+**DON'T:** Extremely busy/detailed images with no clear resting area, very bright/washed-out scenes, images with lots of fine detail exactly where text will go
+
+Examples for a "home repair" post:
+
+- Hook slide: "Close-up of a weathered wooden window frame with peeling white paint, green garden visible through the glass, natural daylight, residential photography style, relatable everyday mood, no text, no letters, no words, no watermark, high quality"
+- Content slide 1: "Old single-pane basement window with condensation, dim interior with exposed pipes and a bare bulb overhead, cracked concrete floor, residential photography, honest documentary feel, no text, no letters, no words, no watermark, high quality"
+- Content slide 2: "Under-sink view of a stainless steel garbage disposal unit connected to white PVC pipes, clean white cabinet interior, kitchen renovation photography, practical informative mood, no text, no letters, no words, no watermark, high quality"
+- Content slide 3: "Hand holding a caulk gun along a window frame edge, natural side lighting, shallow depth of field, DIY home improvement photography, hands-on practical mood, no text, no letters, no words, no watermark, high quality"
+- CTA slide: "Freshly installed modern double-pane window in a renovated room, clean white trim, warm afternoon light streaming through, residential interior photography, satisfying completion mood, no text, no letters, no words, no watermark, high quality"
 
 ### Common mistakes to avoid
 

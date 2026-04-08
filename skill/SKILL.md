@@ -170,9 +170,10 @@ This is the most important question because it determines which flow to use:
 > - **Neon** — Cyberpunk with glowing borders, tech aesthetic
 > - **Stack** — Full-bleed backgrounds, bottom-anchored text, story-style
 > - **Clean** — Ultra-minimal, duotone wash, light typography
+> - **Caption** — Text directly on vivid photos, no overlay, organic UGC feel
 > - **Surprise me** — I'll pick one that hasn't been used recently
 
-For **carousel**: this sets the slide template. For **AI video**: this sets the CTA end-card style. Bold/Neon are great for tech, finance, authority content. Minimal/Clean suit lifestyle, luxury, wellness. Magazine works for thought leadership and education. Stack is best for visual-first content like travel and food.
+For **carousel**: this sets the slide template. For **AI video**: this sets the CTA end-card style. Bold/Neon are great for tech, finance, authority content. Minimal/Clean suit lifestyle, luxury, wellness. Magazine works for thought leadership and education. Stack is best for visual-first content like travel and food. Caption is ideal for relatable/viral content, DIY, home improvement, and personal stories.
 
 **Smart question skipping:** If the user says "Create a TikTok AI video about productivity", questions 1 (AI Video), 2 (productivity, auto-generate) are already answered. Only ask questions 3 and 4. Use your judgment — the goal is efficiency, not rigidly asking every time.
 
@@ -299,7 +300,7 @@ For AI-generated video posts with scene descriptions, voiceover narration, and s
 - `video_provider`: `"gemini"` (Veo 3.1, 8s clips), `"kling"` (Kling, 10s clips), or `"grok"` (Grok Imagine Video, 8s clips). Omit to auto-detect from available credentials (tries Gemini → Kling → Grok).
 - `aspect_ratio`: `"9:16"` for TikTok/Reels/Shorts, `"16:9"` for YouTube, `"1:1"` for Instagram Feed
 - `mode`: `"std"` (standard quality) or `"pro"` (higher quality, longer processing — Kling only)
-- `template`: Template for the CTA end-card: `"bold"`, `"neon"`, `"minimal"`, `"clean"`, `"stack"`, or `"magazine"`. Uses the same branded slide renderer as carousels.
+- `template`: Template for the CTA end-card: `"bold"`, `"neon"`, `"minimal"`, `"clean"`, `"stack"`, `"magazine"`, or `"caption"`. Uses the same branded slide renderer as carousels.
 - `voiceover`: Enable TTS narration (reads `voiceover_text` from each scene). **Defaults to `true`** — voiceover runs unless you explicitly set `"voiceover": false`. Omitting this field = voiceover ON.
 - `tts_provider`: **Do NOT set this field** — the pipeline reads `tts_provider` from `postgen.config.json` automatically. Only include this field if the user explicitly asks to override the config for this specific post. Valid values: `"openai"`, `"elevenlabs"`, `"gemini"`.
 - `visual_style`: **Strongly recommended.** A description of the consistent visual look applied to ALL scene prompts — color grading, lighting, camera style, and subject appearance (e.g. "Cinematic warm golden color grade, soft shadows. A confident man in his late 20s with short dark hair wearing a grey t-shirt. Smooth slow camera movements, shallow depth of field."). This gets automatically prepended to every scene prompt to ensure visual coherence across clips. Without this, each clip will have different actors, lighting, and styles. See [video-content-guide.md](references/video-content-guide.md) for detailed guidance.
@@ -530,7 +531,7 @@ To retry from a specific step, run that script individually:
 ```bash
 node <skill-path>/scripts/generate-backgrounds.mjs <post-dir>
 node <skill-path>/scripts/compress-backgrounds.mjs <post-dir>
-node <skill-path>/scripts/build-slides.mjs <post-dir> [--format instagram|tiktok] [--template bold|minimal|magazine|neon|stack|clean]
+node <skill-path>/scripts/build-slides.mjs <post-dir> [--format instagram|tiktok] [--template bold|minimal|magazine|neon|stack|clean|caption]
 node <skill-path>/scripts/render-slides.mjs <post-dir> [--format instagram|tiktok]
 node <skill-path>/scripts/generate-video.mjs <post-dir> [--format instagram|tiktok]
 node <skill-path>/scripts/generate-tts.mjs <post-dir> [--provider openai|elevenlabs|gemini] [--voice <voice-id>]

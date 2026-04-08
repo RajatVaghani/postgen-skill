@@ -56,7 +56,7 @@ Located at the root of the workspace path. Created by `scripts/setup.mjs`.
 | `defaults.slide_count` | No | Default number of slides (default: 7) |
 | `defaults.formats` | No | Array of output formats: `"instagram"` (4:5), `"tiktok"` (9:16). Legacy alias `"shorts"` also accepted. |
 | `defaults.output_type` | No | Default output type: `"image"` (PNG only), `"video"` (PNG + MP4), or `"both"` (default). Can be overridden per post in slides.json. |
-| `defaults.template` | No | Default template: `"bold"`, `"minimal"`, `"magazine"`, `"neon"`, `"stack"`, or `"clean"` |
+| `defaults.template` | No | Default template: `"bold"`, `"minimal"`, `"magazine"`, `"neon"`, `"stack"`, `"clean"`, or `"caption"` |
 | `video_provider` | No | Preferred video provider: `"gemini"` (Veo 3.1, 8s clips), `"kling"` (10s clips), or `"grok"` (Grok Imagine Video, 8s clips). Auto-detected if omitted (tries Gemini → Kling → Grok). Can also be set per-post in video.json. |
 | `tts_provider` | No | Preferred TTS provider: `"openai"`, `"elevenlabs"`, or `"gemini"`. Auto-detected if omitted (tries OpenAI → ElevenLabs → Gemini). |
 | `gemini_api_key` | No | Fallback API key for Google GenAI |
@@ -143,6 +143,7 @@ Set `output_type` in `slides.json` per post, or set `defaults.output_type` in co
 | `neon` | Cyberpunk, glowing borders | White/neon on dark | Dark tech/abstract backgrounds |
 | `stack` | Full-bleed, bottom-anchored | White on gradient | Vivid full-bleed backgrounds |
 | `clean` | Duotone, minimal chrome | Dark on wash | Mid-tone backgrounds with color wash |
+| `caption` | Text-on-image, no overlay | White on raw photo | Vivid unprocessed backgrounds |
 
 ## Workspace Directory Structure
 

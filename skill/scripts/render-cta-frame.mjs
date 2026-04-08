@@ -26,6 +26,7 @@ import * as magazineTmpl from './templates/magazine.mjs';
 import * as neonTmpl from './templates/neon.mjs';
 import * as stackTmpl from './templates/stack.mjs';
 import * as cleanTmpl from './templates/clean.mjs';
+import * as captionTmpl from './templates/caption.mjs';
 
 const TEMPLATES = {
   bold: boldTmpl,
@@ -34,6 +35,7 @@ const TEMPLATES = {
   neon: neonTmpl,
   stack: stackTmpl,
   clean: cleanTmpl,
+  caption: captionTmpl,
 };
 
 const VIEWPORTS = {
